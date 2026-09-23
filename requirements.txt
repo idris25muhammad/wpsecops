@@ -3,6 +3,8 @@ Flask[async]==3.0.3
 Flask-Login==0.6.3
 Flask-SQLAlchemy==3.1.1
 Werkzeug==3.0.3
+gunicorn==22.0.0
+
 
 # Library tambahan yang wajib diinstal untuk background task
 celery==5.4.0

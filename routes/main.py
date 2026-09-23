@@ -36,14 +36,19 @@ def check_system_dependencies():
 
     # 3. Nuclei + Templates (FASE 3 - Exposure Detection)
     nuclei_path = shutil.which("nuclei")
-    templates_dir = "/home/idris/nuclei-templates"
-    templates_exist = os.path.exists(templates_dir)
-    nuclei_ready = bool(nuclei_path and templates_exist)
+    candidate_dirs = [
+        os.getenv("NUCLEI_TEMPLATES_DIR", ""),
+        os.path.expanduser("~/nuclei-templates"),
+        os.path.expanduser("~/.local/nuclei-templates"),
+        "/home/idris/nuclei-templates",
+    ]
+    found_template_dir = next((d for d in candidate_dirs if d and os.path.exists(d)), None)
+    nuclei_ready = bool(nuclei_path and found_template_dir)
     deps.append({
         "name": "Nuclei + Templates",
         "category": "FASE 3 - WordPress Exposure Detection (-tags wordpress)",
         "status": "ready" if nuclei_ready else ("warning" if nuclei_path else "missing"),
-        "details": f"{nuclei_path or 'Engine missing'} | Templates: {'OK (/home/idris/nuclei-templates)' if templates_exist else 'Missing'}",
+        "details": f"{nuclei_path or 'Engine missing'} | Templates: {'OK (' + found_template_dir + ')' if found_template_dir else 'Perlu update (nuclei -update-templates)'}",
         "badge": "Siap & Aktif" if nuclei_ready else ("Perlu Template" if nuclei_path else "Missing")
     })
 
