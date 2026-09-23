@@ -1,0 +1,337 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+{% set ai_total = ai_stats.severity.critical + ai_stats.severity.high + ai_stats.severity.medium + ai_stats.severity.low %}
+<div class="mb-6">
+    <h1 class="ds-title">Statistik Global</h1>
+    <p class="text-sm text-gray-500">Analisis menyeluruh performa scanning dan sebaran celah keamanan AI</p>
+</div>
+
+{% if ai_total == 0 %}
+<div class="mb-6 px-4 py-3 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg text-sm flex items-start gap-2.5">
+    <svg aria-hidden="true" class="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    <div>
+        <p class="font-semibold">Belum ada data analisis AI</p>
+        <p class="text-[13px] mt-0.5">Grafik keparahan, komponen, dan matriks di bawah masih kosong karena belum ada temuan yang dianalisis. Buka laporan pada <span class="font-mono">Scan History</span> lalu klik <span class="font-mono">Minta Rekomendasi AI</span> pada sebuah temuan untuk mengisi statistik ini.</p>
+    </div>
+</div>
+{% endif %}
+
+<!-- KPI Cards -->
+<div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
+    <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <p class="text-xs text-gray-500 mb-1">Total Server</p>
+        <p class="text-3xl font-bold text-gray-900">{{ stats.total_servers }}</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <p class="text-xs text-gray-500 mb-1">Total Scan</p>
+        <p class="text-3xl font-bold text-sky-600">{{ stats.total_scans }}</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <p class="text-xs text-gray-500 mb-1">Kerentanan Terdeteksi</p>
+        <p class="text-3xl font-bold text-red-600">{{ stats.total_vulns }}</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <p class="text-xs text-gray-500 mb-1">Rerata Durasi Scan</p>
+        <p class="text-3xl font-bold text-yellow-700">{{ stats.avg_duration }}s</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <p class="text-xs text-gray-500 mb-1">Tingkat Keberhasilan</p>
+        <p class="text-3xl font-bold text-green-600">{{ stats.success_rate }}%</p>
+    </div>
+</div>
+
+<!-- Charts Grid -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+    <!-- Chart 1: Scan Activity Trend -->
+    <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-gray-800 mb-4">Tren Pemindaian (30 Hari Terakhir)</h2>
+        <div class="relative h-64">
+            <canvas id="trendChart" role="img" aria-label="Grafik tren jumlah pemindaian dalam 30 hari terakhir"></canvas>
+        </div>
+    </div>
+
+    <!-- Chart 2: Severity Distribution -->
+    <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-gray-800 mb-4">Distribusi Tingkat Keparahan AI</h2>
+        <div class="relative h-64">
+            <canvas id="severityChart" role="img" aria-label="Diagram batang distribusi tingkat keparahan kerentanan"></canvas>
+        </div>
+    </div>
+
+    <!-- Chart 3: Component Breakdown -->
+    <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-gray-800 mb-4">Rasio Kerentanan Komponen</h2>
+        <div class="relative h-64 flex justify-center items-center">
+            <div class="w-full max-w-[280px]">
+                <canvas id="componentChart" role="img" aria-label="Diagram lingkaran rasio kerentanan komponen"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chart 4: AI Model Usage -->
+    <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-gray-800 mb-4">Rasio Penggunaan Model Gen AI</h2>
+        <div class="relative h-64 flex justify-center items-center">
+            <div class="w-full max-w-[280px]">
+                <canvas id="aiUsageChart" role="img" aria-label="Diagram lingkaran rasio penggunaan model Gen AI"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Table 1: Vulnerability Matrix Breakdown -->
+<div class="ds-card mb-6">
+    <div class="ds-card-head">
+        <h2>Tabel Distribusi Matriks Kerentanan</h2>
+    </div>
+    <div class="ds-scroll">
+        <table class="ds-table">
+            <thead>
+                <tr>
+                    <th>Komponen</th>
+                    <th class="ds-center text-red-500">Kritis (Critical)</th>
+                    <th class="ds-center text-orange-500">Tinggi (High)</th>
+                    <th class="ds-center text-yellow-700">Sedang (Medium)</th>
+                    <th class="ds-center text-sky-600">Rendah (Low)</th>
+                    <th class="ds-center">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="ds-main">WordPress Core</td>
+                    <td class="ds-center ds-num text-red-600 font-bold">{{ matrix.core.critical }}</td>
+                    <td class="ds-center ds-num text-orange-600 font-semibold">{{ matrix.core.high }}</td>
+                    <td class="ds-center ds-num text-yellow-700">{{ matrix.core.medium }}</td>
+                    <td class="ds-center ds-num text-sky-600">{{ matrix.core.low }}</td>
+                    <td class="ds-center ds-num font-bold text-gray-900">
+                        {{ matrix.core.critical + matrix.core.high + matrix.core.medium + matrix.core.low }}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="ds-main">Tema (Themes)</td>
+                    <td class="ds-center ds-num text-red-600 font-bold">{{ matrix.theme.critical }}</td>
+                    <td class="ds-center ds-num text-orange-600 font-semibold">{{ matrix.theme.high }}</td>
+                    <td class="ds-center ds-num text-yellow-700">{{ matrix.theme.medium }}</td>
+                    <td class="ds-center ds-num text-sky-600">{{ matrix.theme.low }}</td>
+                    <td class="ds-center ds-num font-bold text-gray-900">
+                        {{ matrix.theme.critical + matrix.theme.high + matrix.theme.medium + matrix.theme.low }}
+                    </td>
+                </tr>
+                <tr>
+                    <td class="ds-main">Plugin (Plugins)</td>
+                    <td class="ds-center ds-num text-red-600 font-bold">{{ matrix.plugin.critical }}</td>
+                    <td class="ds-center ds-num text-orange-600 font-semibold">{{ matrix.plugin.high }}</td>
+                    <td class="ds-center ds-num text-yellow-700">{{ matrix.plugin.medium }}</td>
+                    <td class="ds-center ds-num text-sky-600">{{ matrix.plugin.low }}</td>
+                    <td class="ds-center ds-num font-bold text-gray-900">
+                        {{ matrix.plugin.critical + matrix.plugin.high + matrix.plugin.medium + matrix.plugin.low }}
+                    </td>
+                </tr>
+                <tr style="background:#f8fafc;">
+                    <td class="ds-main text-sky-600">Total Keseluruhan</td>
+                    <td class="ds-center ds-num text-red-600 font-bold">
+                        {{ matrix.core.critical + matrix.theme.critical + matrix.plugin.critical }}
+                    </td>
+                    <td class="ds-center ds-num text-orange-600 font-bold">
+                        {{ matrix.core.high + matrix.theme.high + matrix.plugin.high }}
+                    </td>
+                    <td class="ds-center ds-num text-yellow-700 font-bold">
+                        {{ matrix.core.medium + matrix.theme.medium + matrix.plugin.medium }}
+                    </td>
+                    <td class="ds-center ds-num text-sky-600 font-bold">
+                        {{ matrix.core.low + matrix.theme.low + matrix.plugin.low }}
+                    </td>
+                    <td class="ds-center ds-num font-black text-sky-600">
+                        {{ stats.total_vulns }}
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Table 2: Server Stats Summary -->
+<div class="ds-card mb-8">
+    <div class="ds-card-head">
+        <h2>Statistik Performa & Temuan Celah per Server</h2>
+    </div>
+    <div class="ds-scroll">
+        <table class="ds-table">
+            <thead>
+                <tr>
+                    <th>Nama Server</th>
+                    <th>Target URL</th>
+                    <th class="ds-center">Total Scan</th>
+                    <th class="ds-center text-green-600">Sukses</th>
+                    <th class="ds-center text-red-600">Gagal</th>
+                    <th class="ds-center text-yellow-700">Rerata Durasi</th>
+                    <th class="ds-center text-red-500">Total Celah</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in server_stats %}
+                <tr>
+                    <td class="ds-main">{{ s.name }}</td>
+                    <td class="ds-sub font-mono truncate max-w-xs">{{ s.url }}</td>
+                    <td class="ds-center ds-num font-medium text-gray-900">{{ s.total_scans }}</td>
+                    <td class="ds-center ds-num text-green-600">{{ s.scanned_scans }}</td>
+                    <td class="ds-center ds-num text-red-600">{{ s.failed_scans }}</td>
+                    <td class="ds-center ds-num text-yellow-700">{{ s.avg_duration }}s</td>
+                    <td class="ds-center ds-num font-bold text-red-600">{{ s.total_vulns }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="7">
+                        <div class="ds-empty"><strong>Belum ada data aktivitas server</strong>Jalankan scan untuk mulai melihat statistik di sini.</div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Chart.js inclusion -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    // Global Chart.js styling defaults
+    Chart.defaults.color = '#6b7280';
+    Chart.defaults.borderColor = '#e5e7eb';
+
+    // 1. Scan Activity Trend Line Chart
+    const trendCtx = document.getElementById('trendChart').getContext('2d');
+    new Chart(trendCtx, {
+        type: 'line',
+        data: {
+            labels: {{ trend_labels|tojson }},
+            datasets: [{
+                label: 'Jumlah Scan',
+                data: {{ trend_values|tojson }},
+                borderColor: '#0ea5e9',
+                backgroundColor: 'rgba(14, 165, 233, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.3,
+                pointBackgroundColor: '#0ea5e9',
+                pointRadius: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false }
+            },
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: { maxTicksLimit: 10, font: { size: 10 } }
+                },
+                y: {
+                    beginAtZero: true,
+                    ticks: { precision: 0, font: { size: 10 } }
+                }
+            }
+        }
+    });
+
+    // 2. Severity Distribution Bar Chart
+    const severityCtx = document.getElementById('severityChart').getContext('2d');
+    new Chart(severityCtx, {
+        type: 'bar',
+        data: {
+            labels: ['Kritis (Critical)', 'Tinggi (High)', 'Sedang (Medium)', 'Rendah (Low)'],
+            datasets: [{
+                data: [
+                    {{ ai_stats.severity.critical }},
+                    {{ ai_stats.severity.high }},
+                    {{ ai_stats.severity.medium }},
+                    {{ ai_stats.severity.low }}
+                ],
+                backgroundColor: ['#ef4444', '#f97316', '#eab308', '#38bdf8'],
+                borderWidth: 0,
+                borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false }
+            },
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: { font: { size: 10 } }
+                },
+                y: {
+                    beginAtZero: true,
+                    ticks: { precision: 0, font: { size: 10 } }
+                }
+            }
+        }
+    });
+
+    // 3. Component Breakdown Pie Chart
+    const componentCtx = document.getElementById('componentChart').getContext('2d');
+    new Chart(componentCtx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Core', 'Tema', 'Plugin'],
+            datasets: [{
+                data: [
+                    {{ ai_stats.component.core }},
+                    {{ ai_stats.component.theme }},
+                    {{ ai_stats.component.plugin }}
+                ],
+                backgroundColor: ['#10b981', '#ca8a04', '#3b82f6'],
+                borderColor: '#ffffff',
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { boxWidth: 12, font: { size: 11 } }
+                }
+            },
+            cutout: '65%'
+        }
+    });
+
+    // 4. AI Usage Doughnut Chart
+    const aiUsageCtx = document.getElementById('aiUsageChart').getContext('2d');
+    new Chart(aiUsageCtx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Gemini', 'Claude'],
+            datasets: [{
+                data: [
+                    {{ ai_stats.provider.gemini }},
+                    {{ ai_stats.provider.anthropic }}
+                ],
+                backgroundColor: ['#8b5cf6', '#ec4899'],
+                borderColor: '#ffffff',
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { boxWidth: 12, font: { size: 11 } }
+                }
+            },
+            cutout: '65%'
+        }
+    });
+});
+</script>
+{% endblock %}

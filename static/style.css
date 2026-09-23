@@ -1,0 +1,61 @@
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
+body { background: #0f172a; color: #e2e8f0; }
+
+nav {
+    background: #1e293b; padding: 1rem 2rem;
+    display: flex; align-items: center; gap: 1.5rem;
+}
+nav .brand { font-weight: bold; font-size: 1.2rem; color: #38bdf8; margin-right: auto; }
+nav a { color: #94a3b8; text-decoration: none; }
+nav a:hover { color: #38bdf8; }
+
+main { padding: 2rem; }
+
+.alert { background: #7c3aed; padding: .75rem 1rem; border-radius: 6px; margin-bottom: 1rem; }
+
+.login-box {
+    max-width: 360px; margin: 5rem auto;
+    background: #1e293b; padding: 2rem; border-radius: 12px;
+}
+.login-box h2 { margin-bottom: 1.5rem; color: #38bdf8; }
+.login-box input {
+    width: 100%; padding: .75rem; margin-bottom: 1rem;
+    background: #0f172a; border: 1px solid #334155;
+    border-radius: 6px; color: #e2e8f0;
+}
+.login-box button {
+    width: 100%; padding: .75rem;
+    background: #0ea5e9; border: none;
+    border-radius: 6px; color: white; cursor: pointer; font-weight: bold;
+}
+
+.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem; }
+.card { background: #1e293b; padding: 1.5rem; border-radius: 10px; text-align: center; }
+.card h3 { font-size: .9rem; color: #94a3b8; margin-bottom: .5rem; }
+.big-number { font-size: 2.5rem; font-weight: bold; }
+.green  { color: #22c55e; }
+.orange { color: #f97316; }
+.red    { color: #ef4444; }
+
+table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 10px; overflow: hidden; }
+th, td { padding: .75rem 1rem; text-align: left; border-bottom: 1px solid #334155; }
+th { background: #0f172a; color: #94a3b8; font-size: .85rem; }
+
+.badge { padding: .25rem .6rem; border-radius: 20px; font-size: .75rem; font-weight: bold; }
+.badge.pending  { background: #78350f; color: #fbbf24; }
+.badge.scanned  { background: #14532d; color: #4ade80; }
+
+.add-form { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
+.add-form input {
+    flex: 1; padding: .75rem;
+    background: #1e293b; border: 1px solid #334155;
+    border-radius: 6px; color: #e2e8f0;
+}
+.add-form button {
+    padding: .75rem 1.5rem; background: #0ea5e9;
+    border: none; border-radius: 6px; color: white; cursor: pointer; font-weight: bold;
+}
+.btn-danger {
+    padding: .4rem .8rem; background: #dc2626;
+    border: none; border-radius: 6px; color: white; cursor: pointer;
+}

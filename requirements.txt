@@ -1,0 +1,15 @@
+#Library utama app web
+Flask[async]==3.0.3
+Flask-Login==0.6.3
+Flask-SQLAlchemy==3.1.1
+Werkzeug==3.0.3
+
+# Library tambahan yang wajib diinstal untuk background task
+celery==5.4.0
+redis==5.0.7
+eventlet==0.36.1
+
+# Library untuk fitur AI vulnerability analyzer (CVE / severity / rekomendasi)
+python-dotenv==1.0.1
+requests==2.32.3
+json_repair>=0.54.1

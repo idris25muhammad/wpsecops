@@ -1,0 +1,795 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<div class="mb-6 flex items-center justify-between gap-4">
+    <div>
+        <h1 class="ds-title">Manajemen Server</h1>
+        <p class="text-sm text-gray-500">Tambah dan kelola target WordPress yang akan dimonitor</p>
+    </div>
+    
+    <!-- Add Server Modal Trigger Button -->
+    <button type="button" onclick="toggleModal('add-server-modal', true)" class="bg-sky-600 hover:bg-sky-600 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition flex items-center gap-1.5 shadow-sm focus:outline-none">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Tambah Server
+    </button>
+</div>
+
+<!-- Server List Table -->
+<div class="ds-card mb-6">
+        <div class="ds-card-head">
+            <h2>Daftar Server ({{ servers|length }})</h2>
+
+            <div class="flex items-center gap-2 flex-wrap">
+                <label class="inline-flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer bg-gray-100 border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-200 transition">
+                    <input type="checkbox" id="select-all" class="rounded bg-gray-50 border-gray-300 text-sky-600 focus:ring-sky-500 w-4 h-4 cursor-pointer">
+                    <span>Pilih Semua</span>
+                </label>
+
+                <button id="bulk-scan-selected"
+                    class="px-2.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-xs rounded-lg text-sky-700 font-semibold transition">
+                    Scan Terpilih
+                </button>
+
+                <button id="bulk-scan-all"
+                    class="px-2.5 py-1.5 bg-teal-50 hover:bg-teal-100 text-xs rounded-lg text-teal-800 font-semibold transition">
+                    Scan Semua
+                </button>
+
+                <span id="bulk-status" class="text-xs text-gray-500"></span>
+            </div>
+        </div>
+
+        <div class="ds-scroll">
+        <table class="ds-table">
+            <thead>
+                <tr>
+                    <th style="width:36px"></th>
+                    <th>Server</th>
+                    <th>Status Terakhir</th>
+                    <th class="ds-center">Kerentanan</th>
+                    <th class="ds-right">Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for s in servers %}
+            <tr id="server-card-{{ s.id }}" data-server-name="{{ s.name }}" data-server-url="{{ s.url }}" data-last-scan-id="{{ s.last_scan_id or '' }}" data-last-status="{{ s.last_status }}" data-server-row="{{ s.id }}">
+                <td>
+                    <input type="checkbox" class="server-checkbox rounded bg-gray-50 border-gray-300 w-4 h-4 text-sky-600 focus:ring-sky-500 cursor-pointer" value="{{ s.id }}">
+                </td>
+
+                <td>
+                    <div class="flex items-center gap-3">
+                        <div class="w-9 h-9 rounded-lg bg-sky-50 border border-sky-200 flex items-center justify-center flex-shrink-0">
+                            <svg aria-hidden="true" class="w-4.5 h-4.5 text-sky-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+                                <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+                                <line x1="6" y1="6" x2="6.01" y2="6"/>
+                                <line x1="6" y1="18" x2="6.01" y2="18"/>
+                            </svg>
+                        </div>
+                        <div class="min-w-0">
+                            <div class="ds-main truncate" title="{{ s.name }}">{{ s.name }}</div>
+                            <a href="{{ s.url }}" target="_blank" rel="noopener noreferrer" class="ds-sub font-mono block truncate max-w-[240px] hover:text-sky-600 hover:underline" title="{{ s.url }}">{{ s.url }}</a>
+                            <div class="ds-sub">Ditambahkan: {{ s.added_at.strftime('%d %b %Y') }}</div>
+                        </div>
+                    </div>
+                </td>
+
+                <td>
+                    <div id="status-badge-{{ s.id }}">
+                        {% if s.last_status == 'scanned' %}
+                            <span class="ds-badge ds-badge-ok"><span class="dot"></span>Selesai</span>
+                        {% elif s.last_status == 'failed' %}
+                            <span class="ds-badge ds-badge-err"><span class="dot"></span>Gagal</span>
+                        {% elif s.last_status == 'scanning' %}
+                            <span class="ds-badge ds-badge-info"><span class="dot"></span>Scanning</span>
+                        {% else %}
+                            <span class="ds-badge ds-badge-warn"><span class="dot"></span>Pending</span>
+                        {% endif %}
+                    </div>
+                    <div id="status-text-{{ s.id }}" class="ds-sub mt-1">
+                        {% if s.last_status == 'scanned' %}
+                            Scan terakhir selesai.
+                        {% elif s.last_status == 'failed' %}
+                            Scan terakhir gagal.
+                        {% elif s.last_status in ('scanning', 'pending') %}
+                            Scan sedang berjalan...
+                        {% else %}
+                            Belum ada proses aktif.
+                        {% endif %}
+                    </div>
+                    <div id="progress-wrap-{{ s.id }}" class="hidden mt-2 max-w-[180px]">
+                        <div class="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div class="h-full w-full bg-sky-600 progress-indeterminate"></div>
+                        </div>
+                    </div>
+                </td>
+
+                <td class="ds-center">
+                    <span id="vuln-count-{{ s.id }}" class="ds-num font-bold {% if s.total_vulns > 0 %}text-red-600{% else %}text-green-600{% endif %}">
+                        {{ s.total_vulns }}
+                    </span>
+                </td>
+
+                <td class="ds-action">
+                    <div class="flex gap-1.5 items-center justify-end flex-wrap">
+                        <button type="button" data-scan-btn data-server-id="{{ s.id }}" class="inline-flex items-center gap-1 px-2.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-xs rounded-lg text-sky-700 font-semibold transition">
+                            <svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                            </svg>
+                            Scan
+                        </button>
+                        <button type="button" data-console-btn data-server-id="{{ s.id }}" data-server-name="{{ s.name }}" data-server-url="{{ s.url }}" class="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-xs rounded-lg text-emerald-700 font-semibold transition" title="Buka Console Log">
+                            <svg aria-hidden="true" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            Console
+                        </button>
+                        <div class="flex gap-1 items-center ml-1 pl-1.5 border-l border-gray-200">
+                            <button type="button" data-edit-btn data-server-id="{{ s.id }}" data-server-name="{{ s.name }}" data-server-url="{{ s.url }}" class="p-1.5 text-gray-500 hover:text-sky-600 hover:bg-sky-50 rounded-md transition" title="Edit Server">
+                                <svg aria-hidden="true" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+                            </button>
+                            <a href="{{ url_for('history.history') }}?server_id={{ s.id }}" class="p-1.5 text-gray-500 hover:text-sky-600 hover:bg-sky-50 rounded-md transition" title="Scan History">
+                                <svg aria-hidden="true" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+                            </a>
+                            <form method="POST" action="{{ url_for('servers.delete_server', server_id=s.id) }}" onsubmit="return confirm('Hapus server ini?')">
+                                <button type="submit" class="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition" title="Hapus Server">
+                                    <svg aria-hidden="true" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="5">
+                    <div class="ds-empty"><strong>Belum ada server yang ditambahkan</strong>Klik "Tambah Server" untuk mulai memantau target WordPress.</div>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+
+    <!-- Pagination controls -->
+    {% if pagination.pages > 1 %}
+    <div class="mt-8 flex justify-center items-center gap-3 border-t border-gray-200 pt-6">
+        {% if pagination.has_prev %}
+            <a href="{{ url_for('servers.servers', page=pagination.prev_num) }}" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-300 text-xs rounded-lg text-gray-700 transition font-semibold">Prev</a>
+        {% else %}
+            <span class="px-3 py-1.5 bg-white text-xs rounded-lg text-gray-500 cursor-not-allowed">Prev</span>
+        {% endif %}
+        
+        <span class="text-xs text-gray-500 font-medium">Halaman {{ pagination.page }} dari {{ pagination.pages }}</span>
+        
+        {% if pagination.has_next %}
+            <a href="{{ url_for('servers.servers', page=pagination.next_num) }}" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-300 text-xs rounded-lg text-gray-700 transition font-semibold">Next</a>
+        {% else %}
+            <span class="px-3 py-1.5 bg-white text-xs rounded-lg text-gray-500 cursor-not-allowed">Next</span>
+        {% endif %}
+    </div>
+    {% endif %}
+
+<style>
+    @keyframes indeterminateSlide {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+    }
+
+    .progress-indeterminate {
+        width: 45%;
+        animation: indeterminateSlide 1.2s infinite ease-in-out;
+    }
+</style>
+
+<!-- Add Server Modal -->
+<div id="add-server-modal" class="fixed inset-0 z-50 hidden bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white border border-gray-200 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+        <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <h3 class="text-sm font-bold text-gray-900 uppercase tracking-wide">Tambah Server Baru</h3>
+            <button type="button" onclick="toggleModal('add-server-modal', false)" class="text-gray-500 hover:text-gray-900 transition">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+        <form method="POST" action="{{ url_for('servers.servers') }}" class="p-6 space-y-4">
+            <div>
+                <label class="block text-xs text-gray-500 font-semibold mb-1.5 uppercase">Nama Server</label>
+                <input type="text" name="name" placeholder="e.g. Lab-VM-01" required
+                    class="w-full bg-gray-100 border border-gray-300 rounded-lg px-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-sky-500 transition">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 font-semibold mb-1.5 uppercase">Target URL</label>
+                <input type="url" name="url" placeholder="https://target.local" required
+                    class="w-full bg-gray-100 border border-gray-300 rounded-lg px-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-sky-500 transition">
+            </div>
+            <div class="pt-4 border-t border-gray-200/60 flex justify-end gap-2">
+                <button type="button" onclick="toggleModal('add-server-modal', false)"
+                    class="px-4 py-2.5 bg-gray-100 hover:bg-gray-100 text-xs rounded-lg text-gray-700 font-semibold transition">
+                    Batal
+                </button>
+                <button type="submit"
+                    class="px-4 py-2.5 bg-sky-600 hover:bg-sky-600 text-xs rounded-lg text-white font-semibold transition">
+                    Simpan
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Server Modal -->
+<div id="edit-server-modal" class="fixed inset-0 z-50 hidden bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white border border-gray-200 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+        <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <h3 class="text-sm font-bold text-gray-900 uppercase tracking-wide">Edit Server</h3>
+            <button type="button" onclick="toggleModal('edit-server-modal', false)" class="text-gray-500 hover:text-gray-900 transition">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+        <form id="edit-server-form" method="POST" action="" class="p-6 space-y-4">
+            <div>
+                <label class="block text-xs text-gray-500 font-semibold mb-1.5 uppercase">Nama Server</label>
+                <input type="text" id="edit-server-name" name="name" placeholder="e.g. Lab-VM-01" required
+                    class="w-full bg-gray-100 border border-gray-300 rounded-lg px-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-sky-500 transition">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 font-semibold mb-1.5 uppercase">Target URL</label>
+                <input type="url" id="edit-server-url" name="url" placeholder="https://target.local" required
+                    class="w-full bg-gray-100 border border-gray-300 rounded-lg px-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-sky-500 transition">
+            </div>
+            <div class="pt-4 border-t border-gray-200/60 flex justify-end gap-2">
+                <button type="button" onclick="toggleModal('edit-server-modal', false)"
+                    class="px-4 py-2.5 bg-gray-100 hover:bg-gray-100 text-xs rounded-lg text-gray-700 font-semibold transition">
+                    Batal
+                </button>
+                <button type="submit"
+                    class="px-4 py-2.5 bg-sky-600 hover:bg-sky-600 text-xs rounded-lg text-white font-semibold transition">
+                    Simpan Perubahan
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Scan Options Modal -->
+<div id="scan-options-modal" class="fixed inset-0 z-50 hidden bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white border border-gray-200 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+        <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <h3 class="text-sm font-bold text-gray-900 uppercase tracking-wide">Kustomisasi Scan</h3>
+            <button type="button" onclick="closeScanModal()" class="text-gray-500 hover:text-gray-900 transition">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+        <div class="p-6 space-y-4">
+            <div>
+                <label class="block text-xs text-gray-500 font-semibold mb-1.5 uppercase">WPScan - Mode Deteksi Plugin</label>
+                <select id="scan-plugins-detection" class="w-full bg-gray-100 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 focus:outline-none focus:border-sky-500">
+                    <option value="passive">Passive</option>
+                    <option value="mixed">Mixed</option>
+                    <option value="aggressive">Aggressive</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs text-gray-500 font-semibold mb-1.5 uppercase">Cookie / Session (scan authenticated)</label>
+                <input type="text" id="scan-cookies" placeholder="wordpress_logged_in=...; PHPSESSID=..."
+                    class="w-full bg-gray-100 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 font-mono focus:outline-none focus:border-sky-500">
+                <p class="text-[10px] text-gray-500 mt-1">Dipakai Nuclei & WPScan agar template yang butuh login (wp-admin, editor, dsb.) ikut terdeteksi.</p>
+            </div>
+
+            <div>
+                <label class="block text-xs text-gray-500 font-semibold mb-1.5 uppercase">Header Kustom (opsional, satu per baris)</label>
+                <textarea id="scan-headers" rows="2" placeholder="User-Agent: Mozilla/5.0&#10;X-Forwarded-For: 192.168.1.10"
+                    class="w-full bg-gray-100 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 font-mono focus:outline-none focus:border-sky-500 resize-none"></textarea>
+            </div>
+
+            <div>
+                <label class="block text-xs text-gray-500 font-semibold mb-1.5 uppercase">Nuclei - Severity</label>
+                <div class="flex flex-wrap gap-2">
+                    <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                        <input type="checkbox" id="scan-sev-critical" checked class="rounded bg-gray-50 border-gray-300 text-red-500 focus:ring-red-500 w-3.5 h-3.5"> Critical
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                        <input type="checkbox" id="scan-sev-high" checked class="rounded bg-gray-50 border-gray-300 text-orange-500 focus:ring-orange-500 w-3.5 h-3.5"> High
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                        <input type="checkbox" id="scan-sev-medium" checked class="rounded bg-gray-50 border-gray-300 text-yellow-500 focus:ring-yellow-500 w-3.5 h-3.5"> Medium
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                        <input type="checkbox" id="scan-sev-low" checked class="rounded bg-gray-50 border-gray-300 text-sky-600 focus:ring-sky-500 w-3.5 h-3.5"> Low
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                        <input type="checkbox" id="scan-sev-info" class="rounded bg-gray-50 border-gray-300 text-gray-500 focus:ring-gray-500 w-3.5 h-3.5"> Info
+                    </label>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs text-gray-500 font-semibold mb-1.5 uppercase">Nuclei - Tags tambahan</label>
+                    <input type="text" id="scan-nuclei-tags" placeholder="cve,default-logins"
+                        class="w-full bg-gray-100 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 font-mono focus:outline-none focus:border-sky-500">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 font-semibold mb-1.5 uppercase">Nuclei - Headless</label>
+                    <label class="flex items-center gap-2 text-sm text-gray-800 cursor-pointer bg-gray-100 border border-gray-300 rounded-lg px-3 py-2">
+                        <input type="checkbox" id="scan-nuclei-headless" class="rounded bg-gray-50 border-gray-300 text-purple-500 focus:ring-purple-500 w-4 h-4">
+                        Aktifkan template browser
+                    </label>
+                </div>
+            </div>
+
+            <div class="pt-4 border-t border-gray-200/60 flex justify-end gap-2">
+                <button type="button" onclick="closeScanModal()"
+                    class="px-4 py-2.5 bg-gray-100 hover:bg-gray-300 text-xs rounded-lg text-gray-700 font-semibold transition">
+                    Batal
+                </button>
+                <button type="button" onclick="confirmScan()"
+                    class="px-4 py-2.5 bg-sky-600 hover:bg-sky-600 text-xs rounded-lg text-white font-semibold transition">
+                    Mulai Scan
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Live Log Console Modal -->
+<div id="console-modal" class="fixed inset-0 z-50 hidden bg-black/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-gray-50 border border-gray-200 rounded-xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+        
+        <!-- Terminal Window Header -->
+        <div class="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between flex-shrink-0">
+            <div class="flex items-center gap-2.5">
+                <div class="flex items-center gap-1.5 mr-2">
+                    <div class="w-3 h-3 rounded-full bg-red-500/80 cursor-pointer" onclick="toggleModal('console-modal', false)" title="Close Terminal"></div>
+                    <div class="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+                    <div class="w-3 h-3 rounded-full bg-green-500/80"></div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="modal-pulse-dot" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse hidden"></span>
+                    <h3 class="text-xs font-bold font-mono text-gray-800 tracking-wide uppercase" id="console-modal-title">TERMINAL LOG</h3>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-2">
+                <button type="button" onclick="updateModalTerminalLogs(currentConsoleServerId)" class="px-2.5 py-1 bg-sky-950/80 hover:bg-sky-100 text-[11px] font-mono text-sky-700 rounded transition border border-sky-800 flex items-center gap-1" title="Refresh log mentah terbaru">
+                    <svg class="w-3 h-3 text-sky-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Refresh Log
+                </button>
+                <button type="button" onclick="copyConsoleLogs()" class="px-2.5 py-1 bg-gray-100 hover:bg-gray-300 text-[11px] font-mono text-gray-700 rounded transition border border-gray-300">
+                    Copy Log
+                </button>
+                <button type="button" onclick="clearConsoleLogs()" class="px-2.5 py-1 bg-gray-100 hover:bg-gray-300 text-[11px] font-mono text-gray-700 rounded transition border border-gray-300">
+                    Clear
+                </button>
+                <button type="button" onclick="toggleModal('console-modal', false)" class="text-gray-500 hover:text-gray-900 p-1 rounded transition ml-1">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Terminal Sub-Header Info Bar -->
+        <div class="bg-white border-b border-gray-200 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-gray-500 flex-shrink-0">
+            <div class="flex items-center gap-3">
+                <span class="text-sky-600">Target: <strong id="modal-target-url" class="font-normal text-gray-900">-</strong></span>
+                <span>€¢</span>
+                <span>Status: <strong id="modal-scan-status" class="font-normal text-gray-500">IDLE</strong></span>
+            </div>
+            <div class="flex items-center gap-1">
+                <span class="px-2 py-0.5 bg-teal-50 text-teal-700 border border-teal-900/40 rounded text-[10px]">WhatWeb</span>
+                <span class="px-2 py-0.5 bg-orange-50 text-orange-600 border border-orange-200 rounded text-[10px]">WPScan</span>
+                <span class="px-2 py-0.5 bg-purple-50 text-purple-700 border border-purple-200 rounded text-[10px]">Nuclei</span>
+            </div>
+        </div>
+
+        <!-- Terminal Output Screen -->
+        <div class="flex-grow p-4 bg-gray-50 overflow-y-auto max-h-[55vh] font-mono text-xs text-emerald-700 leading-relaxed whitespace-pre-wrap scrollbar-thin selection:bg-emerald-900/50 selection:text-emerald-200" id="modal-terminal-output">
+            <span class="text-gray-500">[SYSTEM] Initializing Terminal Console...</span>
+        </div>
+
+        <!-- Terminal Footer Status Bar -->
+        <div class="bg-white border-t border-gray-200 px-4 py-2 flex items-center justify-between text-[10px] font-mono text-gray-500 flex-shrink-0">
+            <span>Terminal Shell: bash / celery worker</span>
+            <span id="modal-line-count">0 lines</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentConsoleServerId = null;
+    let currentScanServerId = null;
+
+    function openScanModal(serverId) {
+        currentScanServerId = serverId;
+        toggleModal("scan-options-modal", true);
+    }
+
+    function closeScanModal() {
+        toggleModal("scan-options-modal", false);
+    }
+
+    function confirmScan() {
+        const headers = (document.getElementById("scan-headers").value || "")
+            .split("\n").map(s => s.trim()).filter(Boolean);
+
+        const severities = [];
+        ["critical", "high", "medium", "low", "info"].forEach(s => {
+            const el = document.getElementById("scan-sev-" + s);
+            if (el && el.checked) severities.push(s);
+        });
+
+        const options = {
+            cookies: document.getElementById("scan-cookies").value || null,
+            headers: headers,
+            nuclei_severity: severities.length ? severities.join(",") : null,
+            nuclei_tags: document.getElementById("scan-nuclei-tags").value || null,
+            nuclei_headless: document.getElementById("scan-nuclei-headless").checked,
+            plugins_detection: document.getElementById("scan-plugins-detection").value
+        };
+
+        toggleModal("scan-options-modal", false);
+        startScan(currentScanServerId, options);
+    }
+
+    function renderBadge(serverId, status) {
+        const badge = document.getElementById(`status-badge-${serverId}`);
+        if (!badge) return;
+
+        if (status === "scanned") {
+            badge.innerHTML = `<span class="ds-badge ds-badge-ok"><span class="dot"></span>Selesai</span>`;
+        } else if (status === "failed") {
+            badge.innerHTML = `<span class="ds-badge ds-badge-err"><span class="dot"></span>Gagal</span>`;
+        } else if (status === "scanning") {
+            badge.innerHTML = `<span class="ds-badge ds-badge-info"><span class="dot"></span>Scanning</span>`;
+        } else {
+            badge.innerHTML = `<span class="ds-badge ds-badge-warn"><span class="dot"></span>Pending</span>`;
+        }
+    }
+
+    function setStatusText(serverId, text) {
+        const el = document.getElementById(`status-text-${serverId}`);
+        if (el) el.textContent = text;
+    }
+
+    function toggleProgress(serverId, show) {
+        const el = document.getElementById(`progress-wrap-${serverId}`);
+        if (!el) return;
+        el.classList.toggle("hidden", !show);
+    }
+
+    function setVulnCount(serverId, count) {
+        const el = document.getElementById(`vuln-count-${serverId}`);
+        if (!el) return;
+
+        el.textContent = count;
+        el.classList.remove("text-red-600", "text-green-600");
+        el.classList.add(Number(count) > 0 ? "text-red-600" : "text-green-600");
+    }
+
+    function setScanButtonState(serverId, disabled, label = "Scan") {
+        const btn = document.querySelector(`[data-scan-btn][data-server-id="${serverId}"]`);
+        if (!btn) return;
+        btn.disabled = disabled;
+        btn.textContent = label;
+    }
+
+    function setBulkStatus(text) {
+        const el = document.getElementById("bulk-status");
+        if (el) el.textContent = text;
+    }
+
+    function getSelectedServerIds() {
+        return Array.from(document.querySelectorAll(".server-checkbox:checked")).map(cb => Number(cb.value));
+    }
+
+    function toggleModal(modalId, show) {
+        const modal = document.getElementById(modalId);
+        if (modal) {
+            modal.classList.toggle("hidden", !show);
+        }
+    }
+
+    function openEditModal(serverId, name, url) {
+        const form = document.getElementById("edit-server-form");
+        const nameInput = document.getElementById("edit-server-name");
+        const urlInput = document.getElementById("edit-server-url");
+        
+        if (form && nameInput && urlInput) {
+            form.action = `/servers/edit/${serverId}`;
+            nameInput.value = name;
+            urlInput.value = url;
+            toggleModal("edit-server-modal", true);
+        }
+    }
+
+    function openConsoleModal(serverId, serverName, targetUrl) {
+        currentConsoleServerId = serverId;
+        const card = document.getElementById(`server-card-${serverId}`);
+        const name = serverName || (card ? card.getAttribute("data-server-name") : "Server");
+        const url = targetUrl || (card ? card.getAttribute("data-server-url") : "-");
+
+        const titleEl = document.getElementById("console-modal-title");
+        if (titleEl) titleEl.innerText = `TERMINAL LOG - ${name.toUpperCase()}`;
+        
+        const urlEl = document.getElementById("modal-target-url");
+        if (urlEl) urlEl.innerText = url;
+
+        toggleModal("console-modal", true);
+        updateModalTerminalLogs(serverId);
+    }
+
+    function updateModalTerminalLogs(serverId) {
+        if (!serverId) return;
+        const card = document.getElementById(`server-card-${serverId}`);
+        const activeScanId = card ? (card.dataset.activeScanId || card.getAttribute("data-last-scan-id")) : null;
+        const termOutput = document.getElementById("modal-terminal-output");
+        const statusEl = document.getElementById("modal-scan-status");
+        const pulseDot = document.getElementById("modal-pulse-dot");
+        const lineCountEl = document.getElementById("modal-line-count");
+
+        if (!activeScanId) {
+            if (termOutput) {
+                termOutput.innerText = "[SYSTEM] Tidak ada riwayat pemindaian untuk server ini.\nKlik tombol 'Scan' untuk memulai proses pemindaian.";
+            }
+            if (statusEl) {
+                statusEl.innerText = "IDLE";
+                statusEl.className = "font-normal text-gray-500";
+            }
+            if (pulseDot) pulseDot.classList.add("hidden");
+            return;
+        }
+
+        fetch(`/scan-status/${activeScanId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data && (data.results || data.status)) {
+                    let combinedLogs = [];
+                    let isScanning = (data.status === "scanning" || data.status === "pending");
+
+                    if (data.results && data.results.length > 0) {
+                        data.results.forEach(r => {
+                            if (r.raw_output && r.raw_output.trim()) {
+                                combinedLogs.push(`=== [SCANNER: ${r.scanner_type.toUpperCase()} | STATUS: ${r.status.toUpperCase()}] ===\n${r.raw_output.trim()}`);
+                            }
+                        });
+                    }
+
+                    const logText = combinedLogs.length > 0 
+                        ? combinedLogs.join("\n\n") 
+                        : (isScanning 
+                            ? `[SYSTEM] Process scan #${activeScanId} sedang aktif di Celery worker...\nMenunggu stream output terminal dari WhatWeb / WPScan / Nuclei...`
+                            : `[SYSTEM] Scan #${activeScanId} selesai/idle.`);
+
+                    if (termOutput) {
+                        const isScrolledToBottom = termOutput.scrollHeight - termOutput.clientHeight <= termOutput.scrollTop + 60;
+                        termOutput.innerText = logText;
+                        if (isScrolledToBottom) {
+                            termOutput.scrollTop = termOutput.scrollHeight;
+                        }
+                        if (lineCountEl) {
+                            const lines = logText.split('\n').length;
+                            lineCountEl.innerText = `${lines} lines`;
+                        }
+                    }
+
+                    if (statusEl) {
+                        statusEl.innerText = (data.status || "UNKNOWN").toUpperCase();
+                        if (data.status === "scanned") {
+                            statusEl.className = "font-normal text-emerald-700";
+                        } else if (data.status === "failed") {
+                            statusEl.className = "font-normal text-red-600";
+                        } else {
+                            statusEl.className = "font-normal text-yellow-700";
+                        }
+                    }
+
+                    if (pulseDot) {
+                        if (isScanning) {
+                            pulseDot.classList.remove("hidden");
+                        } else {
+                            pulseDot.classList.add("hidden");
+                        }
+                    }
+                }
+            })
+            .catch(err => {
+                console.error("Error fetching modal terminal log:", err);
+            });
+    }
+
+    function clearConsoleLogs() {
+        const termOutput = document.getElementById("modal-terminal-output");
+        if (termOutput) termOutput.innerText = "[SYSTEM] Console cleared by user.";
+    }
+
+    function copyConsoleLogs() {
+        const termOutput = document.getElementById("modal-terminal-output");
+        if (termOutput && termOutput.innerText) {
+            navigator.clipboard.writeText(termOutput.innerText).then(() => {
+                alert("Log terminal berhasil disalin!");
+            });
+        }
+    }
+
+    async function pollScanStatus(serverId, scanId) {
+        renderBadge(serverId, "scanning");
+        setStatusText(serverId, "Scan sedang berjalan...");
+        toggleProgress(serverId, true);
+        setScanButtonState(serverId, true, "Scanning...");
+
+        const serverCard = document.getElementById(`server-card-${serverId}`);
+        if (serverCard) {
+            serverCard.dataset.activeScanId = scanId;
+        }
+
+        try {
+            const res = await fetch(`/scan-status/${scanId}`);
+            if (!res.ok) throw new Error("Gagal mengambil status scan");
+            const data = await res.json();
+
+            if (data.status === "scanning" || data.status === "pending") {
+                setTimeout(() => pollScanStatus(serverId, scanId), 2000);
+                return;
+            }
+
+            renderBadge(serverId, data.status);
+            toggleProgress(serverId, false);
+            setScanButtonState(serverId, false, "Scan");
+
+            if (data.status === "scanned") {
+                setStatusText(serverId, "Scan selesai!");
+                setVulnCount(serverId, data.vuln_count || 0);
+            } else {
+                setStatusText(serverId, "Scan gagal.");
+            }
+        } catch (error) {
+            renderBadge(serverId, "failed");
+            setStatusText(serverId, "Error polling status");
+            toggleProgress(serverId, false);
+            setScanButtonState(serverId, false, "Scan");
+        }
+    }
+
+    async function startScan(serverId, options) {
+        renderBadge(serverId, "pending");
+        setStatusText(serverId, "Memulai scan...");
+        toggleProgress(serverId, true);
+        setScanButtonState(serverId, true, "Starting...");
+
+        options = options || {};
+
+        try {
+            const res = await fetch(`/scan/${serverId}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    plugins_detection: options.plugins_detection || "passive",
+                    cookies: options.cookies || null,
+                    headers: options.headers || [],
+                    nuclei_severity: options.nuclei_severity || null,
+                    nuclei_tags: options.nuclei_tags || null,
+                    nuclei_headless: !!options.nuclei_headless
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok || data.error) {
+                throw new Error(data.error || "Gagal memulai scan");
+            }
+
+            pollScanStatus(serverId, data.scan_id);
+        } catch (error) {
+            renderBadge(serverId, "failed");
+            setStatusText(serverId, error.message || "Gagal membuat scan");
+            toggleProgress(serverId, false);
+            setScanButtonState(serverId, false, "Scan");
+        }
+    }
+
+    async function startBulkScan(serverIds) {
+        if (!serverIds || serverIds.length === 0) {
+            setBulkStatus("Pilih setidaknya 1 server untuk di-scan.");
+            return;
+        }
+
+        serverIds.forEach(serverId => {
+            renderBadge(serverId, "pending");
+            setStatusText(serverId, "Memasukkan antrean...");
+            toggleProgress(serverId, true);
+            setScanButtonState(serverId, true, "Queued...");
+        });
+
+        setBulkStatus(`Mengirim ${serverIds.length} server ke antrean...`);
+
+        try {
+            const res = await fetch("/scan/bulk", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    server_ids: serverIds,
+                    plugins_detection: "passive",
+                    scanners: ["whatweb", "wpscan", "nuclei", "hardening"]
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok || data.error) throw new Error(data.error || "Gagal memulai bulk scan");
+
+            const items = data.items || [];
+            items.forEach(item => {
+                pollScanStatus(item.server_id, item.scan_id);
+            });
+
+            setBulkStatus(`${items.length} scan sedang berjalan...`);
+        } catch (error) {
+            serverIds.forEach(serverId => {
+                renderBadge(serverId, "failed");
+                setStatusText(serverId, "Bulk scan gagal dimulai.");
+                toggleProgress(serverId, false);
+                setScanButtonState(serverId, false, "Scan");
+            });
+
+            setBulkStatus(error.message || "Bulk scan gagal.");
+        }
+    }
+
+    // DOM Event Listeners Initialization
+    document.addEventListener("DOMContentLoaded", () => {
+        document.querySelectorAll("[data-scan-btn]").forEach((btn) => {
+            btn.addEventListener("click", () => {
+                openScanModal(Number(btn.dataset.serverId));
+            });
+        });
+
+        document.querySelectorAll("[data-last-scan-id]").forEach((card) => {
+            const status = card.getAttribute("data-last-status");
+            const scanId = card.getAttribute("data-last-scan-id");
+            const serverId = card.getAttribute("data-server-row");
+            if ((status === "pending" || status === "scanning") && scanId && serverId) {
+                pollScanStatus(serverId, scanId);
+            }
+        });
+
+        document.getElementById("bulk-scan-selected")?.addEventListener("click", () => {
+            startBulkScan(getSelectedServerIds());
+        });
+
+        document.getElementById("bulk-scan-all")?.addEventListener("click", () => {
+            const allIds = Array.from(document.querySelectorAll(".server-checkbox")).map(cb => Number(cb.value));
+            startBulkScan(allIds);
+        });
+
+        document.getElementById("select-all")?.addEventListener("change", (e) => {
+            document.querySelectorAll(".server-checkbox").forEach(cb => {
+                cb.checked = e.target.checked;
+            });
+        });
+
+        document.addEventListener("click", (e) => {
+            const consoleBtn = e.target.closest("[data-console-btn]");
+            if (consoleBtn) {
+                openConsoleModal(
+                    consoleBtn.dataset.serverId,
+                    consoleBtn.dataset.serverName,
+                    consoleBtn.dataset.serverUrl
+                );
+                return;
+            }
+
+            const editBtn = e.target.closest("[data-edit-btn]");
+            if (editBtn) {
+                openEditModal(
+                    editBtn.dataset.serverId,
+                    editBtn.dataset.serverName,
+                    editBtn.dataset.serverUrl
+                );
+                return;
+            }
+        });
+    });
+</script>
+{% endblock %}

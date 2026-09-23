@@ -1,0 +1,1157 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+{#
+  Expected context from the Flask view (history_detail):
+    h            -> ScanHistory row: id, server, scanned_at, duration, status, vuln_count, raw_output
+    ai_analysis  -> parsed dict from history.ai_analysis (json.loads), or None if not run yet.
+                    Shape produced by vuln_analyzer.analyze_vulnerabilities():
+                    { findings: [{index, component, component_name, title,
+                                  cve_ids, severity, severity_reason, recommendations}],
+                      overall_severity, overall_summary, overall_recommendations }
+    target_info  -> optional dict: { wordpress_version, main_theme, plugins_detected }
+                    (e.g. json.loads(h.raw_output).get('target_info') style data)
+#}
+
+{% macro severity_style(sev) %}{% if sev == 'critical' %}bg-red-50 text-red-600 border-red-500/40{% elif sev == 'high' %}bg-orange-50 text-orange-600 border-orange-500/40{% elif sev == 'medium' %}bg-yellow-50 text-yellow-700 border-yellow-500/40{% elif sev == 'low' %}bg-sky-50 text-sky-600 border-sky-500/40{% else %}bg-gray-100 text-gray-500 border-gray-300{% endif %}{% endmacro %}
+
+{% macro severity_badge(sev, size='sm') %}
+<span class="inline-flex items-center {{ 'px-3 py-1 text-xs' if size == 'lg' else 'px-2 py-0.5 text-[11px]' }} rounded-full font-semibold uppercase tracking-wide border {{ severity_style(sev) }}">{{ sev or 'unknown' }}</span>
+{% endmacro %}
+
+{% macro confidence_style(conf) %}{% if conf == 'Confirmed' %}bg-red-50 text-red-600 border-red-200{% elif conf == 'Cross-verified' %}bg-orange-50 text-orange-600 border-orange-200{% elif conf == 'Likely' %}bg-yellow-50 text-yellow-700 border-yellow-200{% elif conf == 'Review Required' %}bg-purple-50 text-purple-700 border-purple-200{% else %}bg-gray-100 text-gray-500 border-gray-300{% endif %}{% endmacro %}
+
+{% macro confidence_badge(conf) %}
+<span class="inline-flex items-center px-2 py-0.5 text-[11px] rounded-full font-semibold uppercase tracking-wide border {{ confidence_style(conf) }}">{{ conf or 'Unconfirmed' }}</span>
+{% endmacro %}
+
+{% macro component_label(component, component_name) %}
+{%- if component == 'core' -%}
+WordPress Core
+{%- elif component == 'theme' -%}
+Tema &middot; {{ component_name or '-' }}
+{%- elif component == 'plugin' -%}
+Plugin &middot; {{ component_name or '-' }}
+{%- else -%}
+{{ component or 'Komponen' }}{% if component_name %} &middot; {{ component_name }}{% endif %}
+{%- endif -%}
+{% endmacro %}
+
+{# --- tally severities for the hero distribution bar --- #}
+{% set ns = namespace(critical=0, high=0, medium=0, low=0, other=0) %}
+{% if ai_analysis and ai_analysis.findings %}
+  {% for f in ai_analysis.findings %}
+    {% if f.severity == 'critical' %}{% set ns.critical = ns.critical + 1 %}
+    {% elif f.severity == 'high' %}{% set ns.high = ns.high + 1 %}
+    {% elif f.severity == 'medium' %}{% set ns.medium = ns.medium + 1 %}
+    {% elif f.severity == 'low' %}{% set ns.low = ns.low + 1 %}
+    {% else %}{% set ns.other = ns.other + 1 %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+{% set sev_total = ns.critical + ns.high + ns.medium + ns.low + ns.other %}
+
+<a href="{{ url_for('history.history') }}"
+   class="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition mb-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 rounded">
+    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    Kembali ke Riwayat
+</a>
+
+<div class="mb-6 flex flex-wrap items-start justify-between gap-4">
+    <div>
+        <h1 class="ds-title">{{ h.server.name }}</h1>
+        <p class="text-sm text-gray-500 truncate max-w-md">{{ h.server.url }}</p>
+    </div>
+
+    <div class="flex items-center gap-3 text-xs text-gray-500">
+        <span>{{ h.scanned_at.strftime('%d %b %Y, %H:%M') }}</span>
+        <span class="text-gray-700">&bull;</span>
+        <span>{{ "%.1f"|format(h.duration) }}s</span>
+        {% if h.status == 'scanned' %}
+            <span class="px-2 py-1 bg-green-50 text-green-600 text-xs rounded-full">Selesai</span>
+        {% elif h.status == 'failed' %}
+            <span class="px-2 py-1 bg-red-50 text-red-600 text-xs rounded-full">Gagal</span>
+        {% else %}
+            <span class="px-2 py-1 bg-yellow-50 text-yellow-700 text-xs rounded-full">Pending</span>
+        {% endif %}
+    </div>
+</div>
+
+{# Tingkat Risiko Keseluruhan - paling atas #}
+{% if h.status == 'scanned' and ai_analysis and ai_analysis.findings %}
+<div class="bg-white border border-gray-200 rounded-xl p-6 mb-8">
+    <div class="flex flex-wrap items-center gap-3 mb-3">
+        <span class="text-xs text-gray-500 uppercase tracking-wide font-medium">Tingkat Risiko Keseluruhan</span>
+        {{ severity_badge(ai_analysis.overall_severity, 'lg') }}
+        <span class="ml-auto text-[10px] text-gray-500 font-mono">{{ findings_count }} temuan</span>
+    </div>
+
+    {% if ai_analysis.overall_summary %}
+    <p class="text-sm text-gray-700 leading-relaxed max-w-3xl mb-5">{{ ai_analysis.overall_summary }}</p>
+    {% endif %}
+
+    {% if sev_total > 0 %}
+    <div class="mb-5">
+        <div class="flex h-2.5 w-full rounded-full overflow-hidden bg-gray-100">
+            {% if ns.critical %}<div class="bg-red-500" style="width: {{ (ns.critical / sev_total * 100) }}%"></div>{% endif %}
+            {% if ns.high %}<div class="bg-orange-500" style="width: {{ (ns.high / sev_total * 100) }}%"></div>{% endif %}
+            {% if ns.medium %}<div class="bg-yellow-500" style="width: {{ (ns.medium / sev_total * 100) }}%"></div>{% endif %}
+            {% if ns.low %}<div class="bg-sky-600" style="width: {{ (ns.low / sev_total * 100) }}%"></div>{% endif %}
+            {% if ns.other %}<div class="bg-gray-600" style="width: {{ (ns.other / sev_total * 100) }}%"></div>{% endif %}
+        </div>
+        <div class="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[11px] text-gray-500">
+            {% if ns.critical %}<span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-red-500"></span>{{ ns.critical }} Critical</span>{% endif %}
+            {% if ns.high %}<span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-orange-500"></span>{{ ns.high }} High</span>{% endif %}
+            {% if ns.medium %}<span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-yellow-500"></span>{{ ns.medium }} Medium</span>{% endif %}
+            {% if ns.low %}<span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-sky-600"></span>{{ ns.low }} Low</span>{% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+{% endif %}
+
+{% if h.status != 'scanned' %}
+{# ---------------- Scan tidak selesai / gagal ---------------- #}
+<div class="bg-white border border-amber-200 rounded-xl p-6">
+    <div class="flex items-start gap-3">
+        <div class="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
+            <svg class="w-5 h-5 text-amber-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+        </div>
+        <div class="flex-1">
+            {% if h.status == 'failed' %}
+            <h2 class="text-sm font-semibold text-gray-900">Pemindaian gagal</h2>
+            <p class="text-xs text-gray-500 mt-1 max-w-xl">Pemindaian untuk target ini berhenti sebelum selesai sehingga belum ada data kerentanan untuk dianalisis. Silakan coba jalankan ulang pemindaian.</p>
+            {% elif h.status in ('scanning', 'pending') %}
+            <h2 class="text-sm font-semibold text-gray-900">Pemindaian masih berlangsung</h2>
+            <p class="text-xs text-gray-500 mt-1 max-w-xl">Hasil untuk target ini belum tersedia karena pemindaian masih berjalan. Silakan muat ulang halaman ini beberapa saat lagi, atau jalankan ulang jika dirasa sudah terlalu lama.</p>
+            {% else %}
+            <h2 class="text-sm font-semibold text-gray-900">Pemindaian tidak selesai</h2>
+            <p class="text-xs text-gray-500 mt-1 max-w-xl">Data kerentanan untuk target ini belum tersedia. Silakan coba jalankan ulang pemindaian.</p>
+            {% endif %}
+            <div class="mt-3 flex items-center gap-2">
+                <button type="button" id="rescan-btn"
+                    data-server-id="{{ h.server_id }}"
+                    data-params='{{ (h.params or {})|tojson }}'
+                    class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white text-xs font-semibold rounded-lg shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+                    Jalankan Ulang Scan
+                </button>
+                <a href="{{ url_for('history.history') }}"
+                   class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white border border-gray-200 hover:bg-gray-50 text-xs text-gray-700 font-medium rounded-lg transition">
+                    Kembali ke History
+                </a>
+            </div>
+
+            {# Parameter scan yang dipakai #}
+            {% if h.params %}
+            <div class="mt-4 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+                <p class="text-[10px] text-gray-500 uppercase tracking-wide font-semibold mb-2">Parameter Scan Terakhir</p>
+                <div class="flex flex-wrap gap-1.5 text-[10px] font-mono">
+                    <span class="px-2 py-0.5 bg-white border border-gray-200 rounded">WPScan: <strong class="text-orange-700">{{ h.params.get('plugins_detection', 'passive') }}</strong></span>
+                    <span class="px-2 py-0.5 bg-white border border-gray-200 rounded">Scanner: <strong class="text-sky-700">{{ (h.params.get('scanners') or ['whatweb','wpscan','nuclei','hardening'])|join(', ') }}</strong></span>
+                    {% if h.params.get('nuclei_severity') %}<span class="px-2 py-0.5 bg-white border border-gray-200 rounded">Nuclei severity: <strong class="text-purple-700">{{ h.params.get('nuclei_severity') }}</strong></span>{% endif %}
+                    {% if h.params.get('nuclei_tags') %}<span class="px-2 py-0.5 bg-white border border-gray-200 rounded">Nuclei tags: <strong class="text-purple-700">{{ h.params.get('nuclei_tags') }}</strong></span>{% endif %}
+                    {% if h.params.get('nuclei_headless') %}<span class="px-2 py-0.5 bg-white border border-gray-200 rounded">Nuclei headless</span>{% endif %}
+                    {% if h.params.get('cookies') %}<span class="px-2 py-0.5 bg-white border border-gray-200 rounded">Cookies diset</span>{% endif %}
+                    {% if h.params.get('headers') %}<span class="px-2 py-0.5 bg-white border border-gray-200 rounded">Header: {{ h.params.get('headers')|length }} item</span>{% endif %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% else %}
+{# ---------------- Scan succeeded ---------------- #}
+
+    {# 1. Warning banners (fallback / API) #}
+    {% if ai_analysis and ai_analysis.findings %}
+        {% if ai_analysis.is_fallback %}
+        <div class="mb-4 text-xs text-yellow-500/90 bg-yellow-950/40 border border-yellow-900/30 px-3 py-2 rounded-lg flex items-center gap-2">
+            <span>Fitur Analisis AI sedang offline. Halaman saat ini menampilkan sistem rekomendasi mitigasi standar.</span>
+        </div>
+        {% endif %}
+
+        {% if api_error %}
+        <div class="mb-4 text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg flex items-start gap-2">
+            <span class="mt-0.5"> ï¸</span>
+            <div>
+                <strong class="font-semibold">Peringatan API WPScan:</strong> {{ api_error }}
+                <p class="mt-1 text-gray-500">Hasil pemindaian mungkin tidak mencantumkan database kerentanan secara lengkap karena kegagalan otentikasi atau batas kuota API terlampaui.</p>
+            </div>
+        </div>
+        {% endif %}
+    {% endif %}
+
+    {# Parameter scan yang dipakai #}
+    {% if h.params %}
+    <div class="bg-white border border-gray-200 rounded-xl p-4 mb-4">
+        <div class="flex items-center gap-2 mb-2.5">
+            <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            <p class="text-[11px] text-gray-500 font-semibold uppercase tracking-wider">Parameter Pemindaian</p>
+        </div>
+        <div class="flex flex-wrap gap-1.5 text-[10px] font-mono">
+            <span class="px-2 py-1 bg-orange-50 text-orange-700 border border-orange-200 rounded">WPScan mode: <strong>{{ h.params.get('plugins_detection', 'passive') }}</strong></span>
+            <span class="px-2 py-1 bg-sky-50 text-sky-700 border border-sky-200 rounded">Scanner: <strong>{{ (h.params.get('scanners') or ['whatweb','wpscan','nuclei','hardening'])|join(', ') }}</strong></span>
+            {% if h.params.get('nuclei_severity') %}<span class="px-2 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded">Nuclei severity: <strong>{{ h.params.get('nuclei_severity') }}</strong></span>{% endif %}
+            {% if h.params.get('nuclei_tags') %}<span class="px-2 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded">Nuclei tags: <strong>{{ h.params.get('nuclei_tags') }}</strong></span>{% endif %}
+            {% if h.params.get('nuclei_headless') %}<span class="px-2 py-1 bg-teal-50 text-teal-700 border border-teal-200 rounded">Nuclei headless</span>{% endif %}
+            {% if h.params.get('cookies') %}<span class="px-2 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded">Cookies diset</span>{% endif %}
+            {% if h.params.get('headers') %}<span class="px-2 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded">Header: {{ h.params.get('headers')|length }} item</span>{% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# 3. Target Info - WhatWeb + WPScan #}
+    {% if target_info %}
+    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
+        <div class="bg-white border border-gray-200 rounded-xl p-4">
+            <p class="text-[11px] text-gray-500 uppercase tracking-wide mb-1">Versi WordPress</p>
+            <p class="text-sm text-gray-900 font-mono font-medium">{{ target_info.wordpress_version or '-' }}</p>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-xl p-4">
+            <p class="text-[11px] text-gray-500 uppercase tracking-wide mb-1">Tema Aktif</p>
+            <p class="text-sm text-gray-900 font-mono font-medium truncate" title="{{ target_info.main_theme or '-' }}">{{ target_info.main_theme or '-' }}</p>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-xl p-4">
+            <p class="text-[11px] text-gray-500 uppercase tracking-wide mb-1">Plugin Terdeteksi</p>
+            <p class="text-sm text-gray-900 font-bold">{{ target_info.plugins_detected|length if target_info.plugins_detected else 0 }}</p>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-xl p-4">
+            <p class="text-[11px] text-gray-500 uppercase tracking-wide mb-1">Users (WPScan)</p>
+            <p class="text-sm font-bold {% if target_info.users_detected %}text-red-600{% else %}text-gray-900{% endif %}">
+                {{ target_info.users_detected|length if target_info.users_detected else 0 }}
+                {% if target_info.users_detected %}<span class="text-[10px] font-normal"> </span>{% endif %}
+            </p>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-xl p-4">
+            <p class="text-[11px] text-gray-500 uppercase tracking-wide mb-1">URL Menarik</p>
+            <p class="text-sm text-gray-900 font-bold">{{ interesting_findings|length if interesting_findings else 0 }}</p>
+        </div>
+    </div>
+
+    {# Tech Stack from WhatWeb #}
+    {% if target_info.tech_stack %}
+    <div class="bg-white border border-teal-900/30 rounded-xl p-4 mb-6">
+        <div class="flex items-center gap-2 mb-3">
+            <span class="w-2 h-2 bg-teal-400 rounded-full"></span>
+            <p class="text-[11px] text-teal-700 font-mono font-semibold uppercase tracking-wider">Tech Stack - WhatWeb</p>
+            {% if target_info.server %}
+            <span class="ml-auto text-[10px] text-gray-500 font-mono">Server: {{ target_info.server }}</span>
+            {% endif %}
+            {% if target_info.php_version %}
+            <span class="text-[10px] text-purple-700 font-mono">PHP {{ target_info.php_version }}</span>
+            {% endif %}
+        </div>
+        <div class="flex flex-wrap gap-1.5">
+            {% for tech in target_info.tech_stack %}
+            <span class="px-2 py-0.5 bg-teal-950/40 text-teal-300 border border-teal-900/30 text-[10px] font-mono rounded">{{ tech }}</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# Plugin details from WPScan (version, outdated, latest) #}
+    {% if target_info.plugin_details %}
+    <div class="bg-white border border-orange-900/30 rounded-xl p-4 mb-6">
+        <div class="flex items-center gap-2 mb-3">
+            <span class="w-2 h-2 bg-orange-400 rounded-full"></span>
+            <p class="text-[11px] text-orange-600 font-mono font-semibold uppercase tracking-wider">Plugin Terdeteksi - WPScan ({{ target_info.plugin_details|length }})</p>
+        </div>
+        <div class="flex flex-wrap gap-1.5">
+            {% for p in target_info.plugin_details %}
+            <span class="px-2 py-0.5 font-mono text-[10px] rounded border {% if p.outdated %}bg-red-50 text-red-700 border-red-200{% else %}bg-orange-950/40 text-orange-300 border-orange-900/30{% endif %}">
+                {{ p.slug }}{% if p.version %} v{{ p.version }}{% endif %}
+                {% if p.outdated %}<span class="text-red-600">[OUTDATED{% if p.latest_version %} - {{ p.latest_version }}{% endif %}]</span>{% endif %}
+            </span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# Network & Scan Detail from WPScan #}
+    {% if target_info.effective_url or target_info.target_ip or target_info.scan_stats %}
+    <div class="bg-white border border-gray-200 rounded-xl p-4 mb-6">
+        <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-[11px] font-mono text-gray-500">
+            {% if target_info.effective_url %}<span>Effective URL: <strong class="text-sky-700">{{ target_info.effective_url }}</strong></span>{% endif %}
+            {% if target_info.target_ip %}<span>Target IP: <strong class="text-sky-700">{{ target_info.target_ip }}</strong></span>{% endif %}
+            {% if target_info.scan_stats.elapsed %}<span>Durasi WPScan: <strong class="text-gray-900">{{ target_info.scan_stats.elapsed }}s</strong></span>{% endif %}
+            {% if target_info.scan_stats.requests_done %}<span>Request: <strong class="text-gray-900">{{ target_info.scan_stats.requests_done }}</strong></span>{% endif %}
+            {% if target_info.scan_stats.cached_requests %}<span>Cache: <strong class="text-gray-900">{{ target_info.scan_stats.cached_requests }}</strong></span>{% endif %}
+            {% if target_info.scan_stats.data_sent_humanised %}<span>Kirim: <strong class="text-gray-900">{{ target_info.scan_stats.data_sent_humanised }}</strong></span>{% endif %}
+            {% if target_info.scan_stats.data_received_humanised %}<span>Terima: <strong class="text-gray-900">{{ target_info.scan_stats.data_received_humanised }}</strong></span>{% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# Main Theme detail from WPScan #}
+    {% if target_info.theme_details %}
+    <div class="bg-white border border-emerald-900/30 rounded-xl p-4 mb-6">
+        <div class="flex items-center gap-2 mb-3">
+            <span class="w-2 h-2 bg-emerald-400 rounded-full"></span>
+            <p class="text-[11px] text-emerald-700 font-mono font-semibold uppercase tracking-wider">Tema Aktif - WPScan</p>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+                <p class="text-xs text-gray-900 font-semibold">{{ target_info.theme_details.name or target_info.theme_details.slug }}</p>
+                {% if target_info.theme_details.slug %}<p class="text-[10px] text-gray-500 font-mono">slug: {{ target_info.theme_details.slug }}</p>{% endif %}
+                {% if target_info.theme_details.version %}<p class="text-xs text-gray-700 mt-1">Versi terdeteksi: <strong class="text-gray-900">{{ target_info.theme_details.version }}</strong></p>{% endif %}
+                {% if target_info.theme_details.outdated %}
+                <p class="text-[10px] text-red-600 mt-1 font-mono">  OUTDATED{% if target_info.theme_details.latest_version %} - terbaru {{ target_info.theme_details.latest_version }}{% endif %}</p>
+                {% endif %}
+                {% if target_info.theme_details.directory_listing %}
+                <p class="text-[10px] text-yellow-700 mt-1 font-mono">Directory listing TERBUKA  </p>
+                {% endif %}
+            </div>
+            <div class="text-[10px] text-gray-500 font-mono space-y-1">
+                {% if target_info.theme_details.location %}<div>Lokasi: <span class="break-all">{{ target_info.theme_details.location }}</span></div>{% endif %}
+                {% if target_info.theme_details.style_uri %}<div><a href="{{ target_info.theme_details.style_uri }}" target="_blank" rel="noopener noreferrer" class="text-sky-600 hover:underline">Style URI: {{ target_info.theme_details.style_uri }}</a></div>{% endif %}
+                {% if target_info.theme_details.readme_url %}<div><a href="{{ target_info.theme_details.readme_url }}" target="_blank" rel="noopener noreferrer" class="text-sky-600 hover:underline">readme.txt &rarr;</a></div>{% endif %}
+                {% if target_info.theme_details.last_updated %}<div>Update terakhir: {{ target_info.theme_details.last_updated[:10] }}</div>{% endif %}
+            </div>
+        </div>
+        {% if target_info.theme_details.description %}
+        <p class="text-[10px] text-gray-500 mt-2 leading-relaxed">{{ target_info.theme_details.description }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# Users detected detail from WPScan #}
+    {% if target_info.user_details %}
+    <div class="bg-white border border-red-200 rounded-xl p-4 mb-6">
+        <div class="flex items-center gap-2 mb-3">
+            <span class="w-2 h-2 bg-red-400 rounded-full"></span>
+            <p class="text-[11px] text-red-600 font-mono font-semibold uppercase tracking-wider">Users Terdeteksi - WPScan ({{ target_info.user_details|length }})</p>
+        </div>
+        <div class="space-y-2">
+            {% for u in target_info.user_details %}
+            <div class="bg-white border border-gray-200 rounded-lg p-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-red-700 font-mono">{{ u.username }}</span>
+                    <span class="text-[10px] text-gray-500 font-mono">confidence {{ u.confidence or '?' }}%</span>
+                </div>
+                {% if u.found_by %}<p class="text-[10px] text-gray-500 mt-1">Deteksi: {{ u.found_by }}</p>{% endif %}
+                {% if u.confirmed_urls %}
+                <div class="mt-1.5 space-y-1">
+                    {% for cu in u.confirmed_urls %}
+                    <div class="text-[10px] text-sky-600 font-mono break-all">{{ cu }}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# Potential risks: timthumbs & config backups #}
+    {% if target_info.timthumbs or target_info.config_backups %}
+    <div class="bg-white border border-yellow-900/40 rounded-xl p-4 mb-6">
+        <div class="flex items-center gap-2 mb-3">
+            <span class="w-2 h-2 bg-amber-400 rounded-full"></span>
+            <p class="text-[11px] text-yellow-700 font-mono font-semibold uppercase tracking-wider">Potensi Risiko - WPScan</p>
+        </div>
+        {% if target_info.timthumbs %}
+        <p class="text-[10px] text-yellow-600 font-mono mb-1.5">TimThumb (.php) Terdeteksi:</p>
+        <div class="flex flex-wrap gap-1.5 mb-3">
+            {% for tt in target_info.timthumbs %}
+            <span class="px-2 py-0.5 bg-amber-950/40 text-yellow-600 border border-yellow-900/40 text-[10px] font-mono rounded">{{ tt.url }}</span>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% if target_info.config_backups %}
+        <p class="text-[10px] text-yellow-600 font-mono mb-1.5">Backup Config (wp-config.php) Terdeteksi:</p>
+        <div class="flex flex-wrap gap-1.5">
+            {% for cb in target_info.config_backups %}
+            <span class="px-2 py-0.5 bg-red-50 text-red-700 border border-red-200 text-[10px] font-mono rounded">{{ cb.url }}</span>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% endif %}
+
+
+
+    {# 3.5. Interesting Findings Container (Always visible above No Vulns alert) #}
+    <div class="bg-white border border-gray-200 rounded-xl p-5 mb-6">
+        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+            Temuan Menarik ({{ interesting_findings|length if interesting_findings else 0 }})
+        </h3>
+        {% if interesting_findings %}
+            <div class="space-y-2.5">
+                {% for item in interesting_findings %}
+                <div class="bg-white border border-gray-200 rounded-lg p-3.5 flex items-start gap-3">
+                    <div class="w-7 h-7 rounded bg-sky-50 flex items-center justify-center flex-shrink-0 mt-0.5 text-sky-600">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    </div>
+                    <div class="flex-grow">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider font-mono">{{ item.type or 'info' }}</h4>
+                            {% if item.url %}
+                            <a href="{{ item.url }}" target="_blank" class="text-[10px] text-sky-600 hover:underline font-mono truncate max-w-[300px] sm:max-w-md">{{ item.url }}</a>
+                            {% endif %}
+                        </div>
+                        {% if item.description %}
+                        <p class="text-xs text-gray-700 mt-1 leading-relaxed">{{ item.description }}</p>
+                        {% endif %}
+
+                        {% if item.found_by %}
+                        <p class="text-[10px] text-gray-500 mt-1 font-mono">Deteksi: {{ item.found_by }}{% if item.confidence %} · confidence {{ item.confidence }}%{% endif %}</p>
+                        {% endif %}
+
+                        {% if item.references and item.references.url %}
+                        <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+                            {% for ref in item.references.url %}
+                            <a href="{{ ref }}" target="_blank" rel="noopener noreferrer" class="text-[10px] text-sky-600 hover:underline font-mono">Referensi &rarr;</a>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        
+                        {% if item.interesting_entries %}
+                        <div class="mt-2 space-y-1 pl-3 border-l-2 border-gray-200">
+                            {% for entry in item.interesting_entries %}
+                            <div class="text-[10px] text-gray-500 font-mono break-all">{{ entry }}</div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="text-xs text-gray-500 italic">Tidak ada temuan pasif/informasi menarik spesifik yang terdeteksi oleh scanner pada target ini.</p>
+        {% endif %}
+    </div>
+
+    {# 4. No Vulnerabilities Alert (at the bottom) #}
+    {% if not (ai_analysis and ai_analysis.findings) %}
+        {# ---------------- No vulnerabilities found ---------------- #}
+        <div class="bg-white border border-gray-200 rounded-xl p-10 text-center mb-6">
+            <div class="w-12 h-12 rounded-full bg-green-900/40 flex items-center justify-center mx-auto mb-4">
+                <svg class="w-6 h-6 text-green-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+            </div>
+            <h2 class="text-sm font-semibold text-gray-900">Tidak ada kerentanan ditemukan</h2>
+            {% if api_error %}
+                <p class="text-xs text-red-600 mt-2 max-w-md mx-auto">
+                     ï¸ Namun, database kerentanan WPScan tidak dapat diakses (Error: {{ api_error }}).
+                    Hasil pemindaian 0 mungkin tidak akurat karena celah keamanan tidak dapat diperiksa.
+                </p>
+            {% else %}
+                <p class="text-xs text-gray-500 mt-1">Target tampak aman berdasarkan hasil pemindaian yang dilakukan.</p>
+            {% endif %}
+        </div>
+    {% endif %}
+
+    {% if ai_analysis and ai_analysis.findings %}
+    <!-- Charts Section for Single Scan -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <!-- Component Breakdown Doughnut -->
+        <div class="bg-white border border-gray-200 rounded-xl p-5 flex flex-col items-center">
+            <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4 w-full text-left">Sebaran Celah Komponen</h3>
+            <div class="w-full max-w-[300px] h-[300px] flex justify-center items-center">
+                <canvas id="scanComponentChart"></canvas>
+            </div>
+        </div>
+        
+        <!-- Severity Distribution Doughnut -->
+        <div class="bg-white border border-gray-200 rounded-xl p-5 flex flex-col items-center">
+            <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4 w-full text-left">Tingkat Keparahan Temuan</h3>
+            <div class="w-full max-w-[300px] h-[300px] flex justify-center items-center">
+                <canvas id="scanSeverityChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+<div class="mb-4 flex flex-wrap items-center justify-between gap-4">
+    <h2 class="text-sm font-semibold text-gray-900">Detail Temuan ({{ ai_analysis.findings|length if ai_analysis else 0 }})</h2>
+    
+    <div class="flex items-center gap-2">
+        <label for="ai-provider-select" class="text-xs text-gray-500">Pilih Model AI:</label>
+        <select id="ai-provider-select" class="bg-gray-100 border border-gray-300 text-xs text-gray-900 rounded px-2.5 py-1 focus:outline-none focus:border-sky-500">
+            <option value="gemini">Google Gemini</option>
+            <option value="claude">Anthropic Claude</option>
+        </select>
+    </div>
+</div>
+
+<div class="space-y-3">
+    {% for f in ai_analysis.findings %}
+    <div id="vuln-card-{{ f.id or f.index }}" class="bg-white border border-gray-200 rounded-xl p-5 {{ confidence_style(f.confidence) if f.id else severity_style(f.severity) }}">
+        
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div id="vuln-badge-container-{{ f.id or f.index }}" class="flex items-center gap-2">
+                {% if f.id %}
+                    {{ confidence_badge(f.confidence) }}
+                    {{ severity_badge(f.severity) }}
+                {% else %}
+                    {{ severity_badge(f.severity) }}
+                {% endif %}
+                
+                {% if f.is_ai %}
+                    <span class="text-[10px] text-sky-600 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded-md font-mono uppercase">AI Rekomendasi</span>
+                {% endif %}
+            </div>
+            
+            <div class="flex items-center gap-2">
+                <span class="text-[10px] text-gray-500">ID: #{{ f.index }}</span>
+                <span class="text-gray-700">&bull;</span>
+                <span class="text-[10px] text-gray-500 uppercase">{{ f.component }}</span>
+            </div>
+        </div>
+
+        <h3 class="text-base font-semibold text-gray-900 mb-2">
+            {{ component_label(f.component, f.component_name) }} &mdash; <span class="font-normal text-gray-700">{{ f.title }}</span>
+        </h3>
+
+        {% if f.cve_id or f.cve_ids %}
+        <div class="flex flex-wrap gap-1.5 mb-3">
+            {% if f.cve_id %}
+                <a href="https://nvd.nist.gov/vuln/detail/{{ f.cve_id }}" target="_blank" rel="noopener noreferrer"
+                   class="inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 hover:bg-red-100 text-red-700 text-[10px] rounded-md font-mono border border-red-200 transition group"
+                   title="Buka rincian CVE di NVD NIST">
+                    <span>{{ f.cve_id }}</span>
+                    <svg class="w-3 h-3 text-red-600 group-hover:translate-x-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                </a>
+            {% elif f.cve_ids %}
+                {% for cve in f.cve_ids %}
+                    <a href="https://nvd.nist.gov/vuln/detail/{{ cve }}" target="_blank" rel="noopener noreferrer"
+                       class="inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 hover:bg-red-100 text-red-700 text-[10px] rounded-md font-mono border border-red-200 transition group"
+                       title="Buka rincian {{ cve }} di NVD NIST">
+                        <span>{{ cve }}</span>
+                        <svg class="w-3 h-3 text-red-600 group-hover:translate-x-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                    </a>
+                {% endfor %}
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if f.version %}
+        <p class="text-xs text-gray-500 mb-2">
+            Versi terdeteksi: <strong class="text-gray-900">{{ f.version }}</strong>
+        </p>
+        {% endif %}
+
+        {% if f.fixed_in %}
+        <p class="text-xs text-green-600/90 mb-3 flex items-center gap-1">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/></svg>
+            <span>Dapat diperbaiki di versi: <strong class="font-semibold">{{ f.fixed_in }}</strong></span>
+        </p>
+        {% endif %}
+
+        <!-- Evidence Summary -->
+        {% if f.evidence_summary %}
+        <div class="mt-3 bg-white border border-gray-200 rounded-lg p-3">
+            <span class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Bukti Verifikasi (Evidence)</span>
+            <pre class="text-xs text-gray-700 mt-1.5 font-mono whitespace-pre-wrap leading-relaxed">{{ f.evidence_summary }}</pre>
+        </div>
+        {% endif %}
+
+        <!-- AI Recommendation Section -->
+        <div class="mt-4 border-t border-gray-200 pt-3">
+            <div class="flex items-center justify-between mb-1.5">
+                {% if f.confidence == 'Confirmed' %}
+                    <span class="text-[10px] text-emerald-700 uppercase tracking-wider font-semibold font-mono flex items-center gap-1">
+                        <svg class="w-3 h-3 text-emerald-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        Rekomendasi Remediasi AI (Terkonfirmasi)
+                    </span>
+                {% else %}
+                    <span class="text-[10px] text-sky-600 uppercase tracking-wider font-semibold font-mono flex items-center gap-1">
+                        <svg class="w-3 h-3 text-sky-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        Analisis & Pencarian CVE via Gen AI
+                    </span>
+                {% endif %}
+            </div>
+            
+            <div id="ai-container-{{ f.id or f.index }}" class="mt-1.5">
+                {% if f.ai_response %}
+                    <div class="text-xs text-gray-700 leading-relaxed font-sans whitespace-pre-wrap bg-white border border-gray-200 p-3.5 rounded-lg shadow-inner">{{ f.ai_response }}</div>
+                {% elif f.recommendations %}
+                    <div class="text-xs text-gray-700 leading-relaxed font-sans whitespace-pre-wrap bg-white border border-gray-200 p-3.5 rounded-lg">
+                        {% for rec in f.recommendations %}
+                            €¢ {{ rec }}
+                        {% endfor %}
+                    </div>
+                {% elif f.id %}
+                    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white border border-gray-200 p-3.5 rounded-lg" id="ai-placeholder-{{ f.id }}">
+                        {% if f.confidence == 'Confirmed' %}
+                            <span class="text-xs text-gray-500">Eksposur terkonfirmasi aktif di target. Klik untuk membuat rekomendasi perbaikan Gen AI.</span>
+                            <button type="button" 
+                                    onclick="triggerAIRecommendation('{{ f.id }}')" 
+                                    id="ai-btn-{{ f.id }}"
+                                    class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg shadow-md transition-all active:scale-[0.98] focus:outline-none flex-shrink-0">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                </svg>
+                                Generate AI Rekomendasi
+                            </button>
+                        {% else %}
+                            <span class="text-xs text-gray-500">Komponen terdeteksi. Minta Gen AI mencari referensi CVE & potensi kerentanan terkait.</span>
+                            <button type="button" 
+                                    onclick="triggerAIRecommendation('{{ f.id }}')" 
+                                    id="ai-btn-{{ f.id }}"
+                                    class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-700 hover:bg-sky-600 text-white text-xs font-semibold rounded-lg shadow-md transition-all active:scale-[0.98] focus:outline-none flex-shrink-0">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                                Minta Gen AI Cari CVE & Analisis
+                            </button>
+                        {% endif %}
+                    </div>
+                    
+                    <div id="ai-loading-{{ f.id }}" class="hidden py-4 text-center">
+                        <div class="inline-block w-5 h-5 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+                        <span class="text-xs text-gray-500 ml-2 font-mono">Menghubungi AI Model... (model thinking, biasanya 30-60 detik)</span>
+                    </div>
+                {% else %}
+                    <!-- Legacy scans fallback -->
+                    <div class="flex items-center justify-between gap-3 bg-white border border-gray-200 p-3.5 rounded-lg" id="ai-placeholder-{{ f.index }}">
+                        <span class="text-xs text-gray-500">Rekomendasi AI belum dibuat untuk temuan ini.</span>
+                        <button type="button" 
+                                onclick="generateRecommendation({{ h.id }}, {{ f.index }})" 
+                                id="ai-btn-{{ f.index }}"
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-700 hover:bg-sky-600 text-white text-xs font-semibold rounded-lg shadow-md transition-all active:scale-[0.98] focus:outline-none">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            Generate AI Rekomendasi
+                        </button>
+                    </div>
+                    
+                    <div id="ai-loading-{{ f.index }}" class="hidden py-4 text-center">
+                        <div class="inline-block w-5 h-5 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+                        <span class="text-xs text-gray-500 ml-2 font-mono">Menghubungi AI... (model thinking, biasanya 30-60 detik)</span>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Manual Recommendation & Notes Section (Enabled by default) -->
+        {% if f.id %}
+        <div class="mt-4 border-t border-gray-200 pt-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <span class="text-[10px] text-orange-600 uppercase tracking-wider font-semibold font-mono flex items-center gap-1">
+                    <svg class="w-3 h-3 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                    Catatan & Rekomendasi Manual (Pentester / User)
+                </span>
+            </div>
+            <div class="mt-2 flex flex-col sm:flex-row gap-2">
+                <textarea id="note-{{ f.id }}" 
+                          rows="3" 
+                          placeholder="Anda dapat memasukkan rekomendasi/catatan manual sendiri, atau klik tombol 'Rekomendasi Otomatis (Gen AI)' untuk mengisi otomatis dari model AI..."
+                          class="flex-grow bg-white text-black text-xs rounded-lg p-2.5 focus:outline-none focus:border-orange-500/50 resize-none font-sans border border-gray-300 placeholder-gray-500">{{ f.manual_note or '' }}</textarea>
+                <div class="flex flex-col gap-2 self-end sm:self-stretch">
+                    <button type="button" 
+                            onclick="generateNoteRecommendation('{{ f.id }}')" 
+                            id="ai-note-btn-{{ f.id }}"
+                            class="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-sky-700 hover:bg-sky-600 text-white text-xs font-semibold rounded-lg transition active:scale-[0.98]">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        Rekomendasi Otomatis (Gen AI)
+                    </button>
+                    <button type="button" 
+                            onclick="saveManualNote('{{ f.id }}')" 
+                            id="note-btn-{{ f.id }}"
+                            class="px-4 py-2 bg-orange-950/70 hover:bg-orange-800 text-orange-300 text-xs font-semibold rounded-lg transition active:scale-[0.98] border border-orange-800/40">
+                        Simpan
+                    </button>
+                </div>
+            </div>
+            <div id="note-ai-status-{{ f.id }}" class="text-[10px] mt-1.5 font-mono hidden"></div>
+            <div id="note-status-{{ f.id }}" class="text-[10px] text-emerald-700 mt-1 hidden font-mono">œ“ Catatan manual berhasil disimpan</div>
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+    {% endif %}
+
+    {# Audit Hardening Checklist - di akhir #}
+    {% if hardening %}
+    <div class="bg-white border border-rose-900/40 rounded-xl p-5 mt-8 mb-8">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <h3 class="text-sm font-semibold text-gray-900 uppercase tracking-wider font-mono flex items-center gap-2">
+                <svg class="w-4 h-4 text-rose-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Audit Hardening WordPress (Eksternal)
+            </h3>
+            <div class="flex flex-wrap gap-2 text-[10px] font-mono">
+                <span class="px-2 py-0.5 bg-red-50 text-red-600 border border-red-200 rounded">FAIL {{ hardening.summary.get('FAIL', 0) }}</span>
+                <span class="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded">WARN {{ hardening.summary.get('WARN', 0) }}</span>
+                <span class="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded">PASS {{ hardening.summary.get('PASS', 0) }}</span>
+                <span class="px-2 py-0.5 bg-sky-50 text-sky-600 border border-sky-200 rounded">INFO {{ hardening.summary.get('INFO', 0) }}</span>
+                <span class="px-2 py-0.5 bg-gray-100 text-gray-500 border border-gray-300 rounded">SKIP {{ hardening.summary.get('SKIP', 0) }}</span>
+            </div>
+        </div>
+
+        <div class="mb-3 text-[10px] text-gray-500 font-mono flex flex-wrap gap-x-4 gap-y-1">
+            <span class="flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12l2.5 2.5L16 9.5"/></svg>
+                Sudah (PASS)
+            </span>
+            <span class="flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9 9l6 6M15 9l-6 6"/></svg>
+                Belum (FAIL)
+            </span>
+            <span class="flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                Perlu perhatian (WARN)
+            </span>
+            <span class="flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5 text-sky-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                Info (INFO)
+            </span>
+            <span class="flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13"/><path d="M13 6l6 6-6 6"/></svg>
+                Dilewati (SKIP)
+            </span>
+        </div>
+
+        {% set h_group_order = ['FAIL', 'WARN', 'PASS', 'INFO', 'SKIP'] %}
+        {% for group in h_group_order %}
+            {% for c in hardening.checks if c.status == group %}
+            <div class="flex items-start gap-3 bg-white border border-gray-200 rounded-lg p-3">
+                <span class="w-6 h-6 mt-0.5 flex-shrink-0 flex items-center justify-center rounded-md
+                    {% if c.status == 'PASS' %}bg-emerald-50 text-emerald-600
+                    {% elif c.status == 'FAIL' %}bg-red-50 text-red-600
+                    {% elif c.status == 'WARN' %}bg-amber-50 text-amber-600
+                    {% elif c.status == 'INFO' %}bg-sky-50 text-sky-600
+                    {% else %}bg-gray-100 text-gray-500{% endif %}">
+                    {% if c.status == 'PASS' %}
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12l2.5 2.5L16 9.5"/></svg>
+                    {% elif c.status == 'FAIL' %}
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9 9l6 6M15 9l-6 6"/></svg>
+                    {% elif c.status == 'WARN' %}
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                    {% elif c.status == 'INFO' %}
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                    {% else %}
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13"/><path d="M13 6l6 6-6 6"/></svg>
+                    {% endif %}
+                </span>
+                <div class="flex-grow min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="text-xs font-semibold text-gray-900">{{ c.title }}</span>
+                        <span class="px-1.5 py-0.5 text-[9px] font-mono rounded border
+                            {% if c.status == 'PASS' %}bg-emerald-50 text-emerald-700 border-emerald-200
+                            {% elif c.status == 'FAIL' %}bg-red-50 text-red-600 border-red-200
+                            {% elif c.status == 'WARN' %}bg-amber-50 text-amber-700 border-amber-200
+                            {% elif c.status == 'INFO' %}bg-sky-50 text-sky-600 border-sky-200
+                            {% else %}bg-gray-100 text-gray-500 border-gray-300{% endif %}">{{ c.status }}</span>
+                    </div>
+                    <p class="text-[11px] text-gray-700 mt-1 leading-relaxed">{{ c.detail }}</p>
+                    {% if c.recommendation %}
+                    <p class="text-[11px] text-sky-700 mt-1 leading-relaxed"><span class="font-semibold">Saran:</span> {{ c.recommendation }}</p>
+                    {% endif %}
+                    {% if c.reference %}
+                    <p class="text-[10px] text-gray-500 mt-0.5 font-mono">Ref: {{ c.reference }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        {% endfor %}
+
+        <p class="text-[10px] text-gray-500 mt-4 leading-relaxed">{{ hardening.disclaimer }}</p>
+    </div>
+    {% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const providerSelect = document.getElementById("ai-provider-select");
+
+    // Chart.js global style setup
+    Chart.defaults.color = '#6b7280';
+    Chart.defaults.borderColor = '#e5e7eb';
+
+    // Parse findings from template context
+    const activeFindings = {{ ai_analysis.findings|tojson if ai_analysis else '[]' }};
+
+    function getCounts(findings) {
+        let coreCount = 0;
+        let themeCount = 0;
+        let pluginCount = 0;
+        let otherCount = 0;
+
+        let criticalCount = 0;
+        let highCount = 0;
+        let mediumCount = 0;
+        let lowCount = 0;
+        let unknownCount = 0;
+
+        findings.forEach(f => {
+            const comp = f.component ? f.component.toLowerCase() : '';
+            if (comp === 'core') coreCount++;
+            else if (comp === 'theme') themeCount++;
+            else if (comp === 'plugin') pluginCount++;
+            else otherCount++;
+
+            const sev = f.severity ? f.severity.toLowerCase() : '';
+            if (sev === 'critical') criticalCount++;
+            else if (sev === 'high') highCount++;
+            else if (sev === 'medium') mediumCount++;
+            else if (sev === 'low') lowCount++;
+            else unknownCount++;
+        });
+
+        return {
+            components: [coreCount, themeCount, pluginCount, otherCount],
+            severities: [criticalCount, highCount, mediumCount, lowCount, unknownCount]
+        };
+    }
+
+    const initialCounts = getCounts(activeFindings);
+
+    const componentEl = document.getElementById('scanComponentChart');
+    const severityEl = document.getElementById('scanSeverityChart');
+    let scanComponentChart = null;
+    let scanSeverityChart = null;
+
+    if (componentEl && severityEl) {
+        // Initialize Component Breakdown Doughnut Chart
+        const componentCtx = componentEl.getContext('2d');
+        scanComponentChart = new Chart(componentCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Core', 'Tema', 'Plugin', 'Umum/Lainnya'],
+                datasets: [{
+                    data: initialCounts.components,
+                    backgroundColor: ['#10b981', '#ca8a04', '#3b82f6', '#8b5cf6'],
+                    borderColor: '#ffffff',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { boxWidth: 10, font: { size: 10 } }
+                    }
+                },
+                cutout: '65%'
+            }
+        });
+
+        // Initialize Severity Distribution Doughnut Chart
+        const severityCtx = severityEl.getContext('2d');
+        scanSeverityChart = new Chart(severityCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Kritis', 'Tinggi', 'Sedang', 'Rendah', 'Belum Dinilai'],
+                datasets: [{
+                    data: initialCounts.severities,
+                    backgroundColor: ['#ef4444', '#f97316', '#eab308', '#38bdf8', '#374151'],
+                    borderColor: '#ffffff',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { boxWidth: 10, font: { size: 10 } }
+                    }
+                },
+                cutout: '65%'
+            }
+        });
+    }
+
+    const severityClasses = {
+        'critical': {
+            'card': ['bg-red-50', 'text-red-600', 'border-red-500/40'],
+            'badge': 'bg-red-50 text-red-600 border-red-500/40'
+        },
+        'high': {
+            'card': ['bg-orange-50', 'text-orange-600', 'border-orange-500/40'],
+            'badge': 'bg-orange-50 text-orange-600 border-orange-500/40'
+        },
+        'medium': {
+            'card': ['bg-yellow-50', 'text-yellow-700', 'border-yellow-500/40'],
+            'badge': 'bg-yellow-50 text-yellow-700 border-yellow-500/40'
+        },
+        'low': {
+            'card': ['bg-sky-50', 'text-sky-600', 'border-sky-500/40'],
+            'badge': 'bg-sky-50 text-sky-600 border-sky-500/40'
+        }
+    };
+
+    function linkifyCVEs(text) {
+        if (!text) return "";
+        return text.replace(/(CVE-\d{4}-\d+)/gi, function(match) {
+            return `<a href="https://nvd.nist.gov/vuln/detail/${match}" target="_blank" rel="noopener noreferrer" class="text-red-600 hover:underline font-mono inline-flex items-center gap-0.5 font-semibold">${match}<svg class="w-3 h-3 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg></a>`;
+        });
+    }
+
+    // Auto linkify pre-existing AI text containers
+    document.querySelectorAll('[id^="ai-container-"]').forEach(container => {
+        const textDiv = container.querySelector('div');
+        if (textDiv && textDiv.innerHTML && textDiv.innerHTML.includes('CVE-')) {
+            textDiv.innerHTML = linkifyCVEs(textDiv.innerHTML);
+        }
+    });
+
+    window.triggerAIRecommendation = function(findingId) {
+        const placeholder = document.getElementById(`ai-placeholder-${findingId}`);
+        const loading = document.getElementById(`ai-loading-${findingId}`);
+        const container = document.getElementById(`ai-container-${findingId}`);
+        const providerSelect = document.getElementById("ai-provider-select");
+        const provider = providerSelect ? providerSelect.value : "gemini";
+
+        const existingErr = document.getElementById(`ai-error-${findingId}`);
+        if (existingErr) existingErr.remove();
+
+        if (placeholder) placeholder.classList.add("hidden");
+        if (loading) loading.classList.remove("hidden");
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 240000);
+
+        fetch(`/history/finding/${findingId}/analyze`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ provider: provider }),
+            signal: controller.signal
+        })
+        .then(async response => {
+            const text = await response.text();
+            let data;
+            try {
+                data = JSON.parse(text);
+            } catch (e) {
+                throw new Error(`Server mengembalikan respons non-JSON (HTTP ${response.status}): ${text.slice(0, 150)}`);
+            }
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || `Server error (HTTP ${response.status})`);
+            }
+            return data;
+        })
+        .then(data => {
+            const formattedText = linkifyCVEs(data.ai_response);
+            container.innerHTML = `
+                <div class="text-xs text-gray-700 leading-relaxed font-sans whitespace-pre-wrap bg-white border border-gray-200 p-3.5 rounded-lg shadow-inner">${formattedText}</div>
+            `;
+
+            const card = document.getElementById(`vuln-card-${findingId}`);
+            if (card) {
+                const badgeContainer = card.querySelector(`[id^="vuln-badge-container-"]`);
+                if (badgeContainer && !badgeContainer.innerHTML.includes("AI Rekomendasi")) {
+                    const aiSpan = document.createElement("span");
+                    aiSpan.className = "text-[10px] text-sky-600 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded-md font-mono uppercase mr-1.5";
+                    aiSpan.innerText = "AI Rekomendasi";
+                    badgeContainer.insertBefore(aiSpan, badgeContainer.lastElementChild);
+                }
+            }
+        })
+        .catch(err => {
+            if (loading) loading.classList.add("hidden");
+            if (placeholder) placeholder.classList.remove("hidden");
+
+            const reason = (err && err.name === "AbortError")
+                ? "Gen AI melebihi batas waktu 240 detik - model sedang lambat atau API tidak merespons. Coba lagi nanti."
+                : (err.message || "Gagal memanggil AI");
+
+            const box = document.createElement("div");
+            box.id = `ai-error-${findingId}`;
+            box.className = "mt-2 text-xs text-red-700 bg-red-50 border border-red-900/50 rounded-lg p-2.5 font-mono whitespace-pre-wrap";
+            box.textContent = ` ï¸ Gagal memanggil Gen AI (${provider}): ${reason}`;
+            if (container) container.insertBefore(box, container.firstChild);
+            console.error("AI error:", err);
+        })
+        .finally(() => clearTimeout(timer));
+    };
+
+    window.generateNoteRecommendation = function(findingId) {
+        const textarea = document.getElementById(`note-${findingId}`);
+        const btn = document.getElementById(`ai-note-btn-${findingId}`);
+        const statusDiv = document.getElementById(`note-ai-status-${findingId}`);
+        const providerSelect = document.getElementById("ai-provider-select");
+        const provider = providerSelect ? providerSelect.value : "gemini";
+
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = "Menghubungi AI...";
+        }
+        if (statusDiv) {
+            statusDiv.classList.remove("hidden");
+            statusDiv.className = "text-[10px] text-sky-600 mt-1.5 font-mono";
+            statusDiv.textContent = "³ Gen AI sedang berpikir... (model thinking, biasanya 30-60 detik)";
+        }
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 240000);
+
+        fetch(`/history/finding/${findingId}/analyze`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ provider: provider }),
+            signal: controller.signal
+        })
+        .then(async response => {
+            const text = await response.text();
+            let data;
+            try {
+                data = JSON.parse(text);
+            } catch (e) {
+                throw new Error(`Server mengembalikan respons non-JSON (HTTP ${response.status}): ${text.slice(0, 150)}`);
+            }
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || `Server error (HTTP ${response.status})`);
+            }
+            return data;
+        })
+        .then(data => {
+            if (textarea) textarea.value = data.ai_response;
+            if (statusDiv) {
+                statusDiv.className = "text-[10px] text-emerald-700 mt-1.5 font-mono";
+                statusDiv.textContent = "œ“ Rekomendasi Gen AI dimasukkan ke catatan. Silakan tinjau, lalu klik Simpan.";
+            }
+        })
+        .catch(err => {
+            const reason = (err && err.name === "AbortError")
+                ? "Gen AI melebihi batas waktu 240 detik - model sedang lambat atau API tidak merespons. Coba lagi nanti."
+                : (err.message || "Gagal memanggil AI");
+            if (statusDiv) {
+                statusDiv.className = "text-[10px] text-red-700 mt-1.5 font-mono whitespace-pre-wrap";
+                statusDiv.textContent = " ï¸ Gagal memanggil Gen AI (" + provider + "): " + reason;
+            }
+            console.error("AI note error:", err);
+        })
+        .finally(() => {
+            clearTimeout(timer);
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = "Rekomendasi Otomatis (Gen AI)";
+            }
+        });
+    };
+
+    window.saveManualNote = function(findingId) {
+        const textarea = document.getElementById(`note-${findingId}`);
+        const noteText = textarea ? textarea.value : "";
+        const btn = document.getElementById(`note-btn-${findingId}`);
+        const statusDiv = document.getElementById(`note-status-${findingId}`);
+        
+        if (btn) {
+            btn.disabled = true;
+            btn.innerText = "Menyimpan...";
+        }
+        
+        fetch(`/history/finding/${findingId}/note`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ note: noteText })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerText = "Simpan";
+            }
+            if (data.success) {
+                if (statusDiv) {
+                    statusDiv.classList.remove("hidden");
+                    setTimeout(() => {
+                        statusDiv.classList.add("hidden");
+                    }, 2000);
+                }
+            } else {
+                alert("Gagal menyimpan catatan: " + (data.error || "Unknown error"));
+            }
+        })
+        .catch(err => {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerText = "Simpan";
+            }
+            alert("Gagal menyimpan catatan: " + err.message);
+        });
+    };
+
+    // Fallback for legacy scans
+    window.generateRecommendation = function(scanId, vulnIndex) {
+        const placeholder = document.getElementById(`ai-placeholder-${vulnIndex}`);
+        const loading = document.getElementById(`ai-loading-${vulnIndex}`);
+        const container = document.getElementById(`ai-container-${vulnIndex}`);
+        const providerSelect = document.getElementById("ai-provider-select");
+        const provider = providerSelect ? providerSelect.value : "gemini";
+
+        const existingErr = document.getElementById(`ai-error-${vulnIndex}`);
+        if (existingErr) existingErr.remove();
+
+        if (placeholder) placeholder.classList.add("hidden");
+        if (loading) loading.classList.remove("hidden");
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 240000);
+
+        fetch(`/history/${scanId}/generate/${vulnIndex}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                provider: provider
+            }),
+            signal: controller.signal
+        })
+        .then(async response => {
+            const text = await response.text();
+            let data;
+            try {
+                data = JSON.parse(text);
+            } catch (e) {
+                throw new Error(`Server mengembalikan respons non-JSON (HTTP ${response.status}): ${text.slice(0, 150)}`);
+            }
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || `Server error (HTTP ${response.status})`);
+            }
+            return data;
+        })
+        .then(data => {
+            let recHtml = '<div class="text-xs text-gray-700 leading-relaxed font-sans whitespace-pre-wrap bg-gray-50 border border-gray-200 p-3 rounded-lg">';
+            if (data.severity_reason) {
+                recHtml += `<p class="italic mb-2">${data.severity_reason}</p>`;
+            }
+            data.recommendations.forEach(rec => {
+                recHtml += `€¢ ${rec}\n`;
+            });
+            recHtml += '</div>';
+            container.innerHTML = recHtml;
+        })
+        .catch(error => {
+            if (loading) loading.classList.add("hidden");
+            if (placeholder) placeholder.classList.remove("hidden");
+
+            const reason = (error && error.name === "AbortError")
+                ? "Gen AI melebihi batas waktu 240 detik - model sedang lambat atau API tidak merespons. Coba lagi nanti."
+                : (error.message || "Gagal menghasilkan rekomendasi.");
+
+            const box = document.createElement("div");
+            box.id = `ai-error-${vulnIndex}`;
+            box.className = "mt-2 text-xs text-red-700 bg-red-50 border border-red-900/50 rounded-lg p-2.5 font-mono whitespace-pre-wrap";
+            box.textContent = ` ï¸ Gagal memanggil Gen AI (${provider}): ${reason}`;
+            if (container) container.insertBefore(box, container.firstChild);
+            console.error("Error generating legacy recommendation:", error);
+        })
+        .finally(() => clearTimeout(timer));
+    };
+});
+</script>
+
+{% endif %}
+{% endblock %}

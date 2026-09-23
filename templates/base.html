@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WP-SecOps</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Segoe UI"', 'system-ui', '-apple-system', 'sans-serif'],
+                        mono: ['Consolas', '"Cascadia Mono"', '"SFMono-Regular"', 'Menlo', 'monospace']
+                    },
+                    colors: {
+                        ink: '#101418',
+                        brand: '#0369a1'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Ground & surfaces */
+        body { font-feature-settings: "tnum", "cv02", "cv03"; }
+        .surface { background: #ffffff; border: 1px solid #e3e6ea; }
+        /* Sidebar & main content transition (transform-only, no layout thrash) */
+        #sidebar {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            will-change: transform;
+        }
+        #sidebar.collapsed {
+            transform: translateX(-100%);
+            will-change: transform;
+        }
+        #main-content {
+            transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        #main-content.expanded {
+            margin-left: 0 !important;
+        }
+        #show-sidebar-btn {
+            transition: opacity 0.2s ease;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            #sidebar, #main-content, #show-sidebar-btn { transition: none; }
+        }
+        /* Focus ring untuk keyboard navigation */
+        a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+            outline: 2px solid #0284c7;
+            outline-offset: 2px;
+        }
+        /* Scrollbar light */
+        ::-webkit-scrollbar { width: 12px; height: 12px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cdd3da; border: 3px solid #f4f5f7; border-radius: 8px; }
+        ::-webkit-scrollbar-thumb:hover { background: #b6bec7; }
+        * { scrollbar-width: thin; scrollbar-color: #cdd3da transparent; }
+
+        /* ===== Data table system ===== */
+        .ds-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .ds-table thead th {
+            text-align: left;
+            padding: 12px 20px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #6b7280;
+            background: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+            white-space: nowrap;
+        }
+        .ds-table thead th.ds-right { text-align: right; }
+        .ds-table thead th.ds-center { text-align: center; }
+        .ds-table tbody td {
+            padding: 13px 20px;
+            vertical-align: middle;
+            border-bottom: 1px solid #eef0f3;
+            color: #374151;
+        }
+        .ds-table tbody tr:last-child td { border-bottom: none; }
+        .ds-table tbody tr { transition: background-color 0.12s ease; }
+        .ds-table tbody tr:hover { background-color: #f8fafc; }
+        .ds-table .ds-num {
+            font-variant-numeric: tabular-nums;
+            font-family: Consolas, "Cascadia Mono", monospace;
+            font-size: 12px;
+        }
+        .ds-table .ds-sub { color: #6b7280; font-size: 12px; }
+        .ds-table .ds-main { font-weight: 600; color: #111827; }
+        /* pill badges */
+        .ds-badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 2px 9px; border-radius: 999px; font-size: 10px; font-weight: 600;
+            letter-spacing: 0.02em; white-space: nowrap; line-height: 1.4;
+        }
+        .ds-badge .dot { width: 6px; height: 6px; border-radius: 999px; }
+        .ds-badge-ok   { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+        .ds-badge-ok .dot   { background: #10b981; }
+        .ds-badge-warn { background: #fffbeb; color: #a16207; border: 1px solid #fde68a; }
+        .ds-badge-warn .dot { background: #ca8a04; }
+        .ds-badge-err  { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+        .ds-badge-err .dot  { background: #ef4444; }
+        .ds-badge-info { background: #f0f9ff; color: #0369a1; border: 1px solid #bae6fd; }
+        .ds-badge-info .dot{ background: #0ea5e9; }
+        .ds-badge-mut  { background: #f3f4f6; color: #6b7280; border: 1px solid #e5e7eb; }
+        .ds-badge-mut .dot{ background: #9ca3af; }
+        .ds-table .ds-action { text-align: right; white-space: nowrap; }
+        .ds-table .ds-link { color: #0284c7; font-weight: 500; }
+        .ds-table .ds-link:hover { text-decoration: underline; }
+        /* empty state */
+        .ds-empty {
+            padding: 40px 20px; text-align: center; color: #9ca3af; font-size: 13px;
+        }
+        .ds-empty strong { display: block; color: #6b7280; font-size: 14px; margin-bottom: 4px; }
+        /* card wrapper for tables */
+        .ds-card {
+            background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden;
+        }
+        .ds-card-head {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            padding: 14px 20px; border-bottom: 1px solid #eef0f3;
+        }
+        .ds-card-head h2 {
+            font-size: 12px; font-weight: 600; letter-spacing: 0.05em;
+            text-transform: uppercase; color: #374151; margin: 0;
+        }
+        .ds-scroll { overflow-x: auto; }
+
+        /* ===== Page title ===== */
+        .ds-title {
+            font-family: Georgia, "Times New Roman", Times, serif;
+            font-size: 24px;
+            font-weight: 700;
+            line-height: 1.2;
+            letter-spacing: -0.01em;
+            color: #111827;
+        }
+    </style>
+</head>
+<body class="bg-[#f2f4f6] text-ink min-h-screen antialiased">
+<!--
+THESIS: WP-SecOps is a daylight mission console - a data-dense security operations surface where scan evidence and status read instantly; it refuses the dark "hacker glow" default (neon, gradients, glass, purple/indigo accents).
+OWN-WORLD: light neutral ground (#f2f4f6) + white surfaces with hairline borders; ink text (#101418); semantic status color used deliberately (green/amber/red/sky) as light-tinted badges, never neon; system font stack (Segoe UI) for UI + system mono (Consolas) for tabular data; wordmark uses the bold system face.
+STORY: an internal security admin opens one light, legible dashboard, sees which WordPress targets are exposed and what is still running, and tracks remediation without the aesthetic noise.
+FIRST VIEWPORT: white sidebar with a sky tile + two-tone wordmark, active route tinted sky; white header band with shield mark, title and tool list; content grid of KPI cards and scan tables on light surfaces.
+FORM: Daylight Mission Console (light-mode conversion of the incumbent dark world), replaced world; no decision roll needed - brief-pinned by the user's explicit light-mode + de-slop directive.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+-->
+{% if current_user.is_authenticated %}
+<div class="flex">
+    <!-- Sidebar -->
+    <aside id="sidebar" class="w-56 min-h-screen bg-gradient-to-b from-white to-teal-50/40 border-r border-gray-200 fixed flex flex-col z-40 overflow-hidden">
+        <!-- Asap biru + teal di bagian bawah sidebar (30% dari bawah) -->
+        <div class="absolute inset-x-0 bottom-0 h-[30%] pointer-events-none"
+             style="background:
+                 radial-gradient(60% 60% at 15% 90%, rgba(14,116,144,0.18), transparent 70%),
+                 radial-gradient(70% 70% at 85% 80%, rgba(8,145,178,0.16), transparent 70%),
+                 radial-gradient(50% 50% at 50% 100%, rgba(45,212,191,0.20), transparent 75%);"></div>
+        <div class="px-5 py-6 border-b border-gray-200 flex items-center justify-between">
+            <a href="{{ url_for('main.dashboard') }}" class="flex-1 flex items-center justify-center select-none">
+                <img src="{{ url_for('static', filename='images/logo_wpsecops.png') }}" alt="WP-SecOps" class="h-[70px] w-auto max-w-full">
+            </a>
+            <button id="hide-sidebar-btn" title="Sembunyikan sidebar"
+                class="text-gray-400 hover:text-teal-600 p-1.5 rounded-md hover:bg-teal-50 shrink-0">
+                <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M11 19l-7-7 7-7"/>
+                    <path d="M18 19l-7-7 7-7"/>
+                </svg>
+            </button>
+        </div>
+        <nav class="flex flex-col gap-1 p-4 flex-1">
+            <a href="{{ url_for('main.dashboard') }}"
+               class="inline-flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm {% if request.endpoint=='main.dashboard' %}bg-teal-50 text-teal-800 font-semibold{% else %}text-gray-600 hover:bg-teal-50/60 hover:text-teal-700{% endif %}">
+               <svg aria-hidden="true" class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+               <span>Dashboard</span>
+            </a>
+            <a href="{{ url_for('servers.servers') }}"
+               class="inline-flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm {% if request.endpoint=='servers.servers' %}bg-teal-50 text-teal-800 font-semibold{% else %}text-gray-600 hover:bg-teal-50/60 hover:text-teal-700{% endif %}">
+               <svg aria-hidden="true" class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><line x1="6" y1="7" x2="6.01" y2="7"/><line x1="6" y1="17" x2="6.01" y2="17"/></svg>
+               <span>Servers</span>
+            </a>
+            <a href="{{ url_for('history.history') }}"
+               class="inline-flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm {% if request.endpoint in ['history.history','history.history_detail'] %}bg-teal-50 text-teal-800 font-semibold{% else %}text-gray-600 hover:bg-teal-50/60 hover:text-teal-700{% endif %}">
+               <svg aria-hidden="true" class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+               <span>Scan History</span>
+            </a>
+            <a href="{{ url_for('main.statistics') }}"
+               class="inline-flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm {% if request.endpoint=='main.statistics' %}bg-teal-50 text-teal-800 font-semibold{% else %}text-gray-600 hover:bg-teal-50/60 hover:text-teal-700{% endif %}">
+               <svg aria-hidden="true" class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+               <span>Statistics</span>
+            </a>
+            <a href="{{ url_for('main.system_status') }}"
+               class="inline-flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm {% if request.endpoint=='main.system_status' %}bg-teal-50 text-teal-800 font-semibold{% else %}text-gray-600 hover:bg-teal-50/60 hover:text-teal-700{% endif %}">
+               <svg aria-hidden="true" class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+               <span>System Status</span>
+            </a>
+            <a href="{{ url_for('main.async_worker') }}"
+               class="inline-flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm {% if request.endpoint=='main.async_worker' %}bg-teal-50 text-teal-800 font-semibold{% else %}text-gray-600 hover:bg-teal-50/60 hover:text-teal-700{% endif %}">
+               <svg aria-hidden="true" class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+               <span>Async Worker</span>
+            </a>
+        </nav>
+        <div class="p-4 border-t border-gray-200 relative z-10">
+            <div class="flex items-center gap-2.5 mb-3">
+                <div class="w-8 h-8 rounded-lg bg-teal-50 border border-teal-200 flex items-center justify-center">
+                    <svg aria-hidden="true" class="w-4 h-4 text-teal-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                </div>
+                <span class="text-xs font-medium text-gray-700 truncate">{{ current_user.username }}</span>
+            </div>
+            <a href="{{ url_for('auth.logout') }}" class="inline-flex items-center gap-2 text-xs font-medium text-red-600 hover:text-red-700">
+                <svg aria-hidden="true" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                Logout
+            </a>
+        </div>
+    </aside>
+
+    <!-- Tombol munculkan kembali sidebar -->
+    <button id="show-sidebar-btn" title="Tampilkan sidebar"
+        class="fixed top-5 left-4 z-50 hidden text-gray-600 hover:text-gray-900 bg-white border border-gray-200 p-2 rounded-lg shadow-sm hover:bg-gray-50">
+        <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13 5l7 7-7 7"/>
+            <path d="M6 5l7 7-7 7"/>
+        </svg>
+    </button>
+
+    <main id="main-content" class="ml-56 flex-1 p-8">
+        <!-- Header kanan-atas: background palet logo + pattern keamanan cyber defense -->
+        <div class="relative h-[100px] rounded-2xl overflow-hidden mb-8 border border-sky-900/40 shadow-lg shadow-sky-950/20 flex items-center px-8"
+             style="background: linear-gradient(120deg, #0d1b2a 0%, #123e66 38%, #0e5a4a 72%, #123b2c 100%);">
+            <!-- pattern keamanan: strip diagonal (cyber bars) -->
+            <div class="absolute inset-0 pointer-events-none"
+                 style="background-image: repeating-linear-gradient(45deg, rgba(56,189,248,0.10) 0 16px, transparent 16px 32px), repeating-linear-gradient(-45deg, rgba(52,211,153,0.07) 0 16px, transparent 16px 32px);"></div>
+            <!-- pattern hexagon / honeycomb cyber defense -->
+            <div class="absolute inset-0 pointer-events-none opacity-60"
+                 style="background-image: url('data:image/svg+xml;utf8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2228%22 height=%2249%22 viewBox=%220 0 28 49%22%3E%3Cpath d=%22M14 0l12 7v14l-12 7L2 21V7L14 0zm0 2L4 8v12l10 6 10-6V8L14 2z%22 fill=%22none%22 stroke=%22%2338bdf8%22 stroke-opacity=%220.14%22 stroke-width=%221%22/%3E%3C/svg%3E'); background-size: 28px 49px;"></div>
+            <!-- pattern shield / chevron security grid -->
+            <div class="absolute inset-0 pointer-events-none opacity-40"
+                 style="background-image: url('data:image/svg+xml;utf8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2256%22 height=%22100%22 viewBox=%220 0 56 100%22%3E%3Cpath d=%22M28 66L0 50L0 16L28 0L56 16L56 50L28 66L28 100%22 fill=%22none%22 stroke=%22%2338bdf8%22 stroke-opacity=%220.22%22 stroke-width=%221.5%22/%3E%3Cpath d=%22M28 0L28 34L0 50L0 84L28 100L56 84L56 50L28 34%22 fill=%22none%22 stroke=%22%2338bdf8%22 stroke-opacity=%220.22%22 stroke-width=%221.5%22/%3E%3C/svg%3E'); background-size: 56px 100px;"></div>
+            <!-- lapisan biner halus di kanan -->
+            <div class="absolute inset-0 pointer-events-none flex items-center justify-end pr-6 opacity-20">
+                <span class="font-mono text-[11px] text-sky-300 leading-relaxed text-right select-none">01001000 01000001 01010010<br>01000100 01000101 01001110</span>
+            </div>
+            <div class="relative flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-sky-500/15 border border-sky-400/30 flex items-center justify-center flex-shrink-0">
+                    <svg aria-hidden="true" class="w-6 h-6 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                        <path d="M9 12l2 2 4-4"/>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-[10px] font-mono uppercase tracking-[0.35em] text-emerald-400/90">Security Monitoring</p>
+                    <p class="text-base font-bold text-white">WP-SecOps - Centralized WordPress Security Scanner</p>
+                    <p class="text-[11px] text-gray-400">WhatWeb &middot; WPScan &middot; Nuclei &middot; Hardening</p>
+                </div>
+            </div>
+        </div>
+
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for msg in messages %}
+                <div class="mb-4 px-4 py-3 bg-sky-50 border border-sky-200 text-sky-800 rounded-lg text-sm">
+                    {{ msg }}
+                </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </main>
+</div>
+{% else %}
+    {% block auth %}{% endblock %}
+{% endif %}
+
+<script>
+    // ===== Toggle Sidebar =====
+    const sidebar = document.getElementById('sidebar');
+    const mainContent = document.getElementById('main-content');
+    const hideBtn = document.getElementById('hide-sidebar-btn');
+    const showBtn = document.getElementById('show-sidebar-btn');
+
+    function setSidebarState(hidden) {
+        if (!sidebar) return; // guard untuk halaman auth (tanpa sidebar)
+
+        if (hidden) {
+            sidebar.classList.add('collapsed');
+            mainContent.classList.add('expanded');
+            showBtn.classList.remove('hidden');
+        } else {
+            sidebar.classList.remove('collapsed');
+            mainContent.classList.remove('expanded');
+            showBtn.classList.add('hidden');
+        }
+        localStorage.setItem('sidebarHidden', hidden ? '1' : '0');
+    }
+
+    if (hideBtn) hideBtn.addEventListener('click', () => setSidebarState(true));
+    if (showBtn) showBtn.addEventListener('click', () => setSidebarState(false));
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const savedState = localStorage.getItem('sidebarHidden');
+        if (savedState === '1') {
+            setSidebarState(true);
+        }
+    });
+
+    // ===== Cek status scan otomatis =====
+    function checkScanStatus() {
+        const pendingElements = document.querySelectorAll('.status-cell[data-status="pending"]');
+        if (pendingElements.length > 0) {
+            pendingElements.forEach(el => {
+                const scanId = el.getAttribute('data-scan-id');
+                fetch(`/scan-status/${scanId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'scanned' || data.status === 'failed') {
+                            window.location.reload();
+                        }
+                    })
+                    .catch(error => console.error('Error fetching status:', error));
+            });
+        }
+    }
+    setInterval(checkScanStatus, 5000);
+
+    // ===== Tombol jalankan ulang scan (gagal/tidak selesai) =====
+    const rescanBtn = document.getElementById('rescan-btn');
+    if (rescanBtn) {
+        rescanBtn.addEventListener('click', async function () {
+            const serverId = rescanBtn.dataset.serverId;
+            if (!serverId) return;
+            let body = { plugins_detection: 'passive' };
+            try {
+                const saved = JSON.parse(rescanBtn.dataset.params || 'null');
+                if (saved && typeof saved === 'object') body = saved;
+            } catch (e) {}
+            rescanBtn.disabled = true;
+            rescanBtn.innerHTML =
+                '<svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>' +
+                ' Menjalankan Scan...';
+            try {
+                const resp = await fetch(`/scan/${serverId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                window.location.href = '/history';
+            } catch (e) {
+                rescanBtn.disabled = false;
+                rescanBtn.innerHTML = 'Gagal, coba lagi';
+            }
+        });
+    }
+</script>
+
+</body>
+</html>

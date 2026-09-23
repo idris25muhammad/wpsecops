@@ -1,0 +1,173 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<div class="mb-6 flex items-center gap-4">
+    <a href="{{ url_for('history.history') }}" class="text-gray-500 hover:text-gray-900 text-sm">† Kembali</a>
+    <div>
+        <h1 class="ds-title">Detail Scan - {{ scan.server.name }}</h1>
+        <p class="text-sm text-gray-500">{{ scan.scanned_at.strftime('%A, %d %B %Y pukul %H:%M') }}</p>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div class="bg-white border border-gray-200 rounded-xl p-4">
+        <p class="text-xs text-gray-500 mb-1">Target URL</p>
+        <p class="text-sm text-sky-600 font-medium truncate">{{ scan.server.url }}</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-4">
+        <p class="text-xs text-gray-500 mb-1">Status</p>
+        {% if scan.status == 'scanned' %}
+            <span class="px-2 py-1 bg-green-50 text-green-600 text-xs rounded-full">Selesai</span>
+        {% elif scan.status == 'failed' %}
+            <span class="px-2 py-1 bg-red-50 text-red-600 text-xs rounded-full">Gagal</span>
+        {% else %}
+            <span class="px-2 py-1 bg-yellow-50 text-yellow-700 text-xs rounded-full">Pending</span>
+        {% endif %}
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-4">
+        <p class="text-xs text-gray-500 mb-1">Durasi</p>
+        <p class="text-sm text-gray-900 font-medium">{{ "%.1f"|format(scan.duration) }} detik</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-4">
+        <p class="text-xs text-gray-500 mb-1">Kerentanan Ditemukan</p>
+        <p class="text-sm font-bold {% if scan.vuln_count > 0 %}text-red-600{% else %}text-green-600{% endif %}">
+            {{ scan.vuln_count }} temuan
+        </p>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+    <div class="bg-white border border-gray-200 rounded-xl p-4">
+        <p class="text-xs text-gray-500 mb-1">WordPress Core</p>
+        <p class="text-lg font-bold {% if core_vulns|length > 0 %}text-red-600{% else %}text-green-600{% endif %}">
+            {{ core_vulns|length }}
+        </p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-4">
+        <p class="text-xs text-gray-500 mb-1">Theme Vulnerabilities</p>
+        <p class="text-lg font-bold {% if theme_vulns|length > 0 %}text-red-600{% else %}text-green-600{% endif %}">
+            {{ theme_vulns|length }}
+        </p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-4">
+        <p class="text-xs text-gray-500 mb-1">Plugin Vulnerabilities</p>
+        <p class="text-lg font-bold {% if plugin_vulns|length > 0 %}text-red-600{% else %}text-green-600{% endif %}">
+            {{ plugin_vulns|length }}
+        </p>
+    </div>
+</div>
+
+{% if core_vulns %}
+<div class="bg-white border border-gray-200 rounded-xl overflow-hidden mb-6">
+    <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-sm font-semibold text-gray-800">Kerentanan WordPress Core</h2>
+    </div>
+    <div class="p-6 space-y-4">
+        {% for vuln in core_vulns %}
+        <div class="border border-red-200 bg-red-50 rounded-xl p-4">
+            <p class="text-sm font-semibold text-red-700">{{ vuln.title or 'Tanpa judul' }}</p>
+            <div class="mt-2 text-xs text-gray-700 space-y-1">
+                <p><span class="text-gray-500">Fixed in:</span> {{ vuln.fixed_in or '-' }}</p>
+                {% if vuln.references and vuln.references.cve %}
+                    <p><span class="text-gray-500">CVE:</span> {{ vuln.references.cve | join(', ') }}</p>
+                {% endif %}
+                {% if vuln.references and vuln.references.url %}
+                    <div>
+                        <p class="text-gray-500 mb-1">Referensi:</p>
+                        <ul class="space-y-1">
+                            {% for ref in vuln.references.url %}
+                                <li>
+                                    <a href="{{ ref }}" target="_blank" class="text-sky-600 hover:underline break-all">{{ ref }}</a>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if theme_vulns %}
+<div class="bg-white border border-gray-200 rounded-xl overflow-hidden mb-6">
+    <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-sm font-semibold text-gray-800">Kerentanan Theme</h2>
+    </div>
+    <div class="p-6 space-y-4">
+        {% for vuln in theme_vulns %}
+        <div class="border border-orange-200 bg-orange-950/20 rounded-xl p-4">
+            <p class="text-sm font-semibold text-orange-300">{{ vuln.title or 'Tanpa judul' }}</p>
+            <div class="mt-2 text-xs text-gray-700 space-y-1">
+                <p><span class="text-gray-500">Theme:</span> {{ parsed.main_theme.slug if parsed.main_theme else '-' }}</p>
+                <p><span class="text-gray-500">Fixed in:</span> {{ vuln.fixed_in or '-' }}</p>
+                {% if vuln.references and vuln.references.cve %}
+                    <p><span class="text-gray-500">CVE:</span> {{ vuln.references.cve | join(', ') }}</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if plugins_with_vulns %}
+<div class="bg-white border border-gray-200 rounded-xl overflow-hidden mb-6">
+    <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-sm font-semibold text-gray-800">Kerentanan Plugin</h2>
+    </div>
+    <div class="p-6 space-y-6">
+        {% for plugin in plugins_with_vulns %}
+        <div class="border border-gray-200 rounded-xl p-4 bg-gray-50/50">
+            <div class="flex items-center justify-between mb-3">
+                <div>
+                    <p class="text-sm font-semibold text-gray-900">{{ plugin.name }}</p>
+                    <p class="text-xs text-gray-500">
+                        Slug: {{ plugin.slug }} |
+                        Versi: {{ plugin.version or 'Unknown' }} |
+                        Latest: {{ plugin.latest_version or '-' }}
+                    </p>
+                </div>
+                <span class="px-2 py-1 bg-red-50 text-red-700 text-xs rounded-full">
+                    {{ plugin.vulnerabilities|length }} vuln
+                </span>
+            </div>
+
+            <div class="space-y-3">
+                {% for vuln in plugin.vulnerabilities %}
+                <div class="border border-red-200 bg-red-50 rounded-lg p-3">
+                    <p class="text-sm text-red-700 font-medium">{{ vuln.title or 'Tanpa judul' }}</p>
+                    <div class="mt-2 text-xs text-gray-700 space-y-1">
+                        <p><span class="text-gray-500">Fixed in:</span> {{ vuln.fixed_in or '-' }}</p>
+                        {% if vuln.references and vuln.references.cve %}
+                            <p><span class="text-gray-500">CVE:</span> {{ vuln.references.cve | join(', ') }}</p>
+                        {% endif %}
+                        {% if vuln.references and vuln.references.url %}
+                            <div>
+                                <p class="text-gray-500 mb-1">Referensi:</p>
+                                <ul class="space-y-1">
+                                    {% for ref in vuln.references.url %}
+                                    <li>
+                                        <a href="{{ ref }}" target="_blank" class="text-sky-600 hover:underline break-all">{{ ref }}</a>
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200">
+        <h2 class="text-sm font-semibold text-gray-800">Raw Output WPScan</h2>
+    </div>
+    <pre class="p-6 text-xs text-green-300 font-mono overflow-x-auto whitespace-pre-wrap leading-relaxed bg-gray-50">{{ scan.raw_output or 'Tidak ada output tersedia.' }}</pre>
+</div>
+{% endblock %}

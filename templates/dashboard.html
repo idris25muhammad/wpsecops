@@ -1,0 +1,110 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<div class="mb-6 flex flex-wrap items-center justify-between gap-4">
+    <div>
+        <h1 class="ds-title">Dashboard Admin</h1>
+        <p class="text-sm text-gray-500">Ringkasan status keamanan server WordPress & aktivitas pemindaian terbaru</p>
+    </div>
+    
+    <a href="{{ url_for('main.async_worker') }}" 
+       class="inline-flex items-center gap-2 px-3.5 py-2 bg-white hover:bg-gray-100 border border-gray-200 rounded-xl text-xs font-mono text-gray-700 hover:text-gray-900 transition shadow-sm">
+        <span class="w-2 h-2 rounded-full {% if celery_stats.status == 'running' %}bg-emerald-400 animate-pulse{% elif celery_stats.status == 'online' %}bg-emerald-400{% else %}bg-gray-500{% endif %}"></span>
+        <span>Status Sistem & Celery</span>
+        <span class="text-sky-600 font-semibold">&rarr;</span>
+    </a>
+</div>
+
+<!-- Stat Cards Grid -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+    <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <p class="text-xs text-gray-500 mb-1">Total Server</p>
+        <p class="text-3xl font-bold text-gray-900">{{ stats.total_servers }}</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <p class="text-xs text-gray-500 mb-1">Total Pemindaian</p>
+        <p class="text-3xl font-bold text-sky-600">{{ stats.total_scans }}</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <p class="text-xs text-gray-500 mb-1">Scan Selesai</p>
+        <p class="text-3xl font-bold text-green-600">{{ stats.scans_done }}</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-xl p-5">
+        <p class="text-xs text-gray-500 mb-1">Total Kerentanan</p>
+        <p class="text-3xl font-bold text-red-600">{{ stats.total_vulns }}</p>
+    </div>
+</div>
+
+<!-- Pemindaian Berjalan Quick Banner (hanya jika ada scan aktif) -->
+{% if celery_stats.running_scans %}
+<div class="bg-white border border-emerald-200 rounded-xl p-4 mb-8">
+    <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <div>
+                <p class="text-xs font-bold text-gray-900 font-mono">
+                    {{ celery_stats.running_scans_count }} Pemindaian Sedang Berjalan di Background
+                </p>
+                <p class="text-[11px] text-gray-500 mt-0.5">
+                    Target: {{ celery_stats.running_scans[0].server_name }} ({{ celery_stats.running_scans[0].target_url }})
+                </p>
+            </div>
+        </div>
+        <a href="{{ url_for('main.async_worker') }}" class="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-700 text-xs font-mono font-semibold rounded-lg transition">
+            Lihat Monitor Real-Time &rarr;
+        </a>
+    </div>
+</div>
+{% endif %}
+
+<!-- Recent Scans Table -->
+<div class="ds-card">
+    <div class="ds-card-head">
+        <h2>Pemindaian Terbaru</h2>
+        <a href="{{ url_for('history.history') }}" class="ds-link text-xs">Lihat Semua History &rarr;</a>
+    </div>
+    <div class="ds-scroll">
+    <table class="ds-table">
+        <thead>
+            <tr>
+                <th>Server</th>
+                <th>URL Target</th>
+                <th>Waktu Scan</th>
+                <th>Status</th>
+                <th class="ds-right">Temuan</th>
+                <th class="ds-right">Aksi</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for scan in recent_scans %}
+            <tr>
+                <td class="ds-main">{{ scan.server.name }}</td>
+                <td class="ds-sub font-mono">{{ scan.server.url }}</td>
+                <td class="ds-sub">{{ scan.scanned_at.strftime('%d %b %Y, %H:%M') }}</td>
+                <td>
+                    {% if scan.status == 'scanned' %}
+                        <span class="ds-badge ds-badge-ok"><span class="dot"></span>Selesai</span>
+                    {% elif scan.status == 'failed' %}
+                        <span class="ds-badge ds-badge-err"><span class="dot"></span>Gagal</span>
+                    {% else %}
+                        <span class="ds-badge ds-badge-warn"><span class="dot"></span>Pending</span>
+                    {% endif %}
+                </td>
+                <td class="ds-right ds-num font-bold {% if scan.vuln_count > 0 %}text-red-600{% else %}text-green-600{% endif %}">
+                    {{ scan.vuln_count }}
+                </td>
+                <td class="ds-action">
+                    <a href="{{ url_for('history.history_detail', scan_id=scan.id) }}" class="ds-link">Laporan &rarr;</a>
+                </td>
+            </tr>
+        {% else %}
+            <tr>
+                <td colspan="6">
+                    <div class="ds-empty"><strong>Belum ada data pemindaian</strong>Jalankan scan pertama untuk melihat hasil di sini.</div>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,63 @@
+# ==============================================================
+# WP-SecOps .gitignore
+# ==============================================================
+
+# --- Environment & Rahasia (Sensitive Data) ---
+.env
+.env.*
+*.env
+!env.example
+
+# --- Database & Storage Lokal ---
+instance/
+*.db
+*.sqlite
+*.sqlite3
+*.corrupt_backup
+
+# --- AI Cache & Temporary Results ---
+ai_cache/
+
+# --- Log & Runtime PID ---
+*.log
+celery.log
+flask.log
+*.pid
+
+# --- Python Virtual Environments ---
+venv/
+venv-wsl/
+ENV/
+env/
+.venv/
+
+# --- Python Bytecode & Cache ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- IDE & AI Agent Workspace Tooling ---
+.agent/
+.agents/
+.gemini/
+.opencode/
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# --- OS System Files & Archives ---
+.DS_Store
+Thumbs.db
+desktop.ini
+*.zip
+*.tar.gz
+*.rar
+
+# --- Internal Research & Notes ---
+penelitian/
+todo.md
+
