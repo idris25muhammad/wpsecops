@@ -1,4 +1,4 @@
-﻿{% extends 'base.html' %}
+{% extends 'base.html' %}
 {% block content %}
 <div class="mb-6 flex items-center justify-between gap-4">
     <div>
@@ -132,6 +132,7 @@
                                 <svg aria-hidden="true" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
                             </a>
                             <form method="POST" action="{{ url_for('servers.delete_server', server_id=s.id) }}" onsubmit="return confirm('Hapus server ini?')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition" title="Hapus Server">
                                     <svg aria-hidden="true" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                                 </button>
@@ -193,6 +194,7 @@
             </button>
         </div>
         <form method="POST" action="{{ url_for('servers.servers') }}" class="p-6 space-y-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div>
                 <label class="block text-xs text-gray-500 font-semibold mb-1.5 uppercase">Nama Server</label>
                 <input type="text" name="name" placeholder="e.g. Lab-VM-01" required
@@ -227,6 +229,7 @@
             </button>
         </div>
         <form id="edit-server-form" method="POST" action="" class="p-6 space-y-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div>
                 <label class="block text-xs text-gray-500 font-semibold mb-1.5 uppercase">Nama Server</label>
                 <input type="text" id="edit-server-name" name="name" placeholder="e.g. Lab-VM-01" required
@@ -552,8 +555,9 @@
 
                     if (data.results && data.results.length > 0) {
                         data.results.forEach(r => {
-                            if (r.raw_output && r.raw_output.trim()) {
-                                combinedLogs.push(`=== [SCANNER: ${r.scanner_type.toUpperCase()} | STATUS: ${r.status.toUpperCase()}] ===\n${r.raw_output.trim()}`);
+                            const chunk = (r.log_tail || r.raw_output || "").trim();
+                            if (chunk) {
+                                combinedLogs.push(`=== [SCANNER: ${r.scanner_type.toUpperCase()} | STATUS: ${r.status.toUpperCase()}] ===\n${chunk}`);
                             }
                         });
                     }

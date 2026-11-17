@@ -1,18 +1,28 @@
-#Library utama app web
+# Library utama app web
 Flask[async]==3.0.3
 Flask-Login==0.6.3
 Flask-SQLAlchemy==3.1.1
+SQLAlchemy>=2.0.36,<2.1
+Flask-WTF==1.2.2
+Flask-Limiter==3.8.0
+Flask-Migrate==4.0.7
 Werkzeug==3.0.3
 gunicorn==22.0.0
 
+# Database driver (MySQL)
+pymysql==1.1.1
+cryptography==44.0.0
 
-# Library tambahan yang wajib diinstal untuk background task
+# Background task & cache
 celery==5.4.0
 redis==5.0.7
-eventlet==0.36.1
 
-# Library untuk fitur AI vulnerability analyzer (CVE / severity / rekomendasi)
+# AI vulnerability analyzer, parsing & system utilities
 python-dotenv==1.0.1
 requests==2.32.3
 json_repair>=0.54.1
+packaging>=24.0
 psutil
+
+# Testing
+pytest>=8.0.0

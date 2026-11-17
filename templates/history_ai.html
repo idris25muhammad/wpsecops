@@ -1,4 +1,4 @@
-﻿{% extends 'base.html' %}
+{% extends 'base.html' %}
 {% block content %}
 {#
   Expected context from the Flask view (history_detail):
@@ -903,6 +903,18 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     });
 
+    async function pollFindingAI(findingId) {
+        const deadline = Date.now() + 240000;
+        while (Date.now() < deadline) {
+            const resp = await fetch(`/history/finding/${findingId}/status`);
+            const data = await resp.json();
+            if (data.status === "done") return data;
+            if (data.status === "error") throw new Error(data.error || "Gagal memanggil Gen AI");
+            await new Promise(r => setTimeout(r, 2000));
+        }
+        throw new Error("Gen AI melebihi batas waktu 240 detik.");
+    }
+
     window.triggerAIRecommendation = function(findingId) {
         const placeholder = document.getElementById(`ai-placeholder-${findingId}`);
         const loading = document.getElementById(`ai-loading-${findingId}`);
@@ -936,9 +948,13 @@ document.addEventListener("DOMContentLoaded", function() {
             if (!response.ok || !data.success) {
                 throw new Error(data.error || `Server error (HTTP ${response.status})`);
             }
+            if (data.status === "pending") {
+                return await pollFindingAI(findingId);
+            }
             return data;
         })
         .then(data => {
+            if (loading) loading.classList.add("hidden");
             const formattedText = linkifyCVEs(data.ai_response);
             container.innerHTML = `
                 <div class="text-xs text-gray-700 leading-relaxed font-sans whitespace-pre-wrap bg-white border border-gray-200 p-3.5 rounded-lg shadow-inner">${formattedText}</div>
@@ -1009,6 +1025,9 @@ document.addEventListener("DOMContentLoaded", function() {
             }
             if (!response.ok || !data.success) {
                 throw new Error(data.error || `Server error (HTTP ${response.status})`);
+            }
+            if (data.status === "pending") {
+                return await pollFindingAI(findingId);
             }
             return data;
         })
@@ -1119,6 +1138,9 @@ document.addEventListener("DOMContentLoaded", function() {
             }
             if (!response.ok || !data.success) {
                 throw new Error(data.error || `Server error (HTTP ${response.status})`);
+            }
+            if (data.status === "pending") {
+                return await pollFindingAI(findingId);
             }
             return data;
         })

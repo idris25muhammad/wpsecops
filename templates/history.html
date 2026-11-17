@@ -1,4 +1,4 @@
-﻿{% extends 'base.html' %}
+{% extends 'base.html' %}
 {% block content %}
 <div class="mb-6 flex flex-wrap items-center justify-between gap-4">
     <div>
@@ -96,6 +96,7 @@
                         </a>
                         <form method="POST" action="{{ url_for('history.delete_history', scan_id=h.id) }}"
                               onsubmit="return confirm('Hapus riwayat pemindaian ini secara permanen?')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit"
                                 title="Hapus riwayat ini"
                                 class="inline-flex items-center justify-center w-7 h-7 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition">

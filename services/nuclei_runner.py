@@ -142,7 +142,7 @@ async def run_nuclei(target_url, log_callback=None, cookies=None, headers=None,
         except json.JSONDecodeError:
             pass
 
-    if not raw_output and process.returncode == 0:
+    if not raw_output and returncode == 0:
         raw_output = "Scan selesai. Tidak ada kerentanan terdeteksi oleh Nuclei."
 
     return {

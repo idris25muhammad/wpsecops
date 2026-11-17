@@ -16,6 +16,8 @@ import json
 import re
 import ssl
 import socket
+import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 
@@ -59,6 +61,30 @@ class WPHardeningChecker:
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": USER_AGENT})
         self.results = []
+        self._homepage_fetched = False
+        self._homepage_resp = None
+
+    def _get_homepage(self):
+        if not self._homepage_fetched:
+            self._homepage_resp = self._get("/")
+            self._homepage_fetched = True
+        return self._homepage_resp
+
+    def _head_or_get(self, path=""):
+        url = urljoin(self.base_url + "/", path.lstrip("/"))
+        for method in (self.session.head, lambda u, **kw: self.session.get(u, stream=True, **kw)):
+            try:
+                r = method(url, timeout=self.timeout, verify=True, allow_redirects=True)
+            except requests.exceptions.SSLError:
+                try:
+                    r = method(url, timeout=self.timeout, verify=False, allow_redirects=True)
+                except requests.exceptions.RequestException:
+                    return None
+            except requests.exceptions.RequestException:
+                return None
+            if r.status_code != 405:
+                return r
+        return None
 
     def _get(self, path="", **kwargs):
         url = urljoin(self.base_url + "/", path.lstrip("/"))
@@ -106,7 +132,7 @@ class WPHardeningChecker:
                 "Paksa redirect semua traffic wp-login.php dan wp-admin/ ke HTTPS.",
                 "Securing wp-admin",
             )
-        r2 = self._get("/")
+        r2 = self._get_homepage()
         if r2 is not None:
             hsts = r2.headers.get("Strict-Transport-Security")
             if hsts:
@@ -235,7 +261,7 @@ class WPHardeningChecker:
             m = re.search(r"Version\s+([\d.]+)", r.text)
             version_found.append(("readme.html", m.group(1) if m else "unknown"))
 
-        r2 = self._get("/")
+        r2 = self._get_homepage()
         if r2 is not None:
             m2 = re.search(r'name="generator"\s+content="WordPress\s+([\d.]+)"', r2.text, re.IGNORECASE)
             if m2:
@@ -315,7 +341,7 @@ class WPHardeningChecker:
             )
 
     def check_security_headers(self):
-        r = self._get("/")
+        r = self._get_homepage()
         if r is None:
             self.add("sec_headers", "Header keamanan HTTP", "SKIP", "Tidak dapat menghubungi situs.")
             return
@@ -372,7 +398,7 @@ class WPHardeningChecker:
             )
 
     def check_login_rate_limit_indicator(self):
-        r = self._get("/")
+        r = self._get_homepage()
         indicators = []
         if r is not None:
             combined = " ".join(f"{k}:{v}" for k, v in r.headers.items()).lower()
@@ -406,9 +432,11 @@ class WPHardeningChecker:
         ]
         exposed = []
         for c in candidates:
-            r = self._get(c)
-            if r is not None and r.status_code == 200 and len(r.content) > 100:
-                exposed.append(c)
+            r = self._head_or_get(c)
+            if r is not None and r.status_code == 200:
+                cl = int(r.headers.get("Content-Length") or 0)
+                if cl > 100 or (cl == 0 and len(getattr(r, "content", b"")) > 100):
+                    exposed.append(c)
         if exposed:
             self.add(
                 "backup_exposure", "Tidak ada file backup/sensitif tertinggal di webroot", "FAIL",
@@ -451,6 +479,8 @@ class WPHardeningChecker:
 
     # ---------- runner ----------
     def run_all(self):
+        # Pre-fetch homepage once so parallel checks share cached response
+        self._get_homepage()
         checks = [
             self.check_https,
             self.check_tls_certificate,
@@ -466,11 +496,15 @@ class WPHardeningChecker:
             self.check_login_rate_limit_indicator,
             self.check_backup_file_exposure,
         ]
-        for c in checks:
+
+        def _run_check(fn):
             try:
-                c()
+                fn()
             except Exception as e:
-                self.add(c.__name__, c.__name__, "SKIP", f"Error internal saat cek: {e}")
+                self.add(fn.__name__, fn.__name__, "SKIP", f"Error internal saat cek: {e}")
+
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            list(pool.map(_run_check, checks))
         return self.results
 
 
@@ -564,7 +598,8 @@ if __name__ == "__main__":
         sys.stdout = buf
         print_text_report(report["target"], checker_results)
         sys.stdout = _stdout
-        print(buf.getvalue())
+        output_str = buf.getvalue()
+        print(output_str)
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:

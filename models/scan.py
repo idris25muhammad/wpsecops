@@ -1,59 +1,74 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from extensions import db
 
+
+def _utcnow():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 class ScanHistory(db.Model):
-    id         = db.Column(db.Integer, primary_key=True)
-    server_id  = db.Column(db.Integer, db.ForeignKey('server.id'), nullable=False, index=True)
-    scanned_at = db.Column(db.DateTime, default=datetime.utcnow)
-    status     = db.Column(db.String(20), default='pending', index=True)
-    vuln_count = db.Column(db.Integer, default=0)
-    raw_output = db.Column(db.Text, default='')
-    duration   = db.Column(db.Float, default=0.0)
-    params     = db.Column(db.JSON, nullable=True)
+    __tablename__ = "scan_history"
+    __table_args__ = (
+        db.Index("ix_scan_history_server_scanned", "server_id", "scanned_at"),
+    )
 
-    results    = db.relationship('ScanResult', backref='history', lazy=True, cascade='all, delete-orphan')
-    findings_list = db.relationship('ScanFinding', back_populates='history', lazy=True, cascade='all, delete-orphan')
+    id                = db.Column(db.Integer, primary_key=True)
+    server_id         = db.Column(db.Integer, db.ForeignKey("server.id"), nullable=False, index=True)
+    scanned_at        = db.Column(db.DateTime, default=_utcnow, index=True)
+    status            = db.Column(db.String(20), default="pending", index=True)
+    vuln_count        = db.Column(db.Integer, default=0)
+    interesting_count = db.Column(db.Integer, default=0)
+    max_severity      = db.Column(db.String(20), nullable=True)
+    risk_color        = db.Column(db.String(20), nullable=True)
+    raw_output        = db.Column(db.Text, default="")
+    duration          = db.Column(db.Float, default=0.0)
+    params            = db.Column(db.JSON, nullable=True)
 
-    @property
-    def interesting_count(self):
-        if not self.raw_output:
-            return 0
-        try:
-            import json
-            data = json.loads(self.raw_output)
-            if isinstance(data, dict):
-                return len(data.get("interesting_findings", []) or [])
-        except Exception:
-            pass
-        return 0
+    results       = db.relationship("ScanResult", backref="history", lazy=True, cascade="all, delete-orphan")
+    findings_list = db.relationship("ScanFinding", back_populates="history", lazy=True, cascade="all, delete-orphan")
+
 
 class ScanResult(db.Model):
+    __tablename__ = "scan_result"
+
     id              = db.Column(db.Integer, primary_key=True)
-    scan_history_id = db.Column(db.Integer, db.ForeignKey('scan_history.id'), nullable=False, index=True)
-    scanner_type    = db.Column(db.String(30), nullable=False, index=True)  # 'wpscan', 'droopescan', 'nuclei'
-    status          = db.Column(db.String(20), default='pending', index=True)
+    scan_history_id = db.Column(db.Integer, db.ForeignKey("scan_history.id"), nullable=False, index=True)
+    scanner_type    = db.Column(db.String(30), nullable=False, index=True)  # 'whatweb', 'wpscan', 'nuclei', 'hardening'
+    status          = db.Column(db.String(20), default="pending", index=True)
     vuln_count      = db.Column(db.Integer, default=0)
-    raw_output      = db.Column(db.Text, default='')
+    raw_output      = db.Column(db.Text, default="")
+    log_text        = db.Column(db.Text, default="")
+    parsed          = db.Column(db.JSON, nullable=True)
     duration        = db.Column(db.Float, default=0.0)
-    scanned_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    started_at      = db.Column(db.DateTime, nullable=True)
+    finished_at     = db.Column(db.DateTime, nullable=True)
+    scanned_at      = db.Column(db.DateTime, default=_utcnow)
 
 
 class ScanFinding(db.Model):
+    __tablename__ = "scan_finding"
+    __table_args__ = (
+        db.Index("ix_scan_finding_history_conf", "scan_history_id", "confidence"),
+    )
+
     id                 = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    scan_history_id    = db.Column(db.Integer, db.ForeignKey('scan_history.id'), nullable=False, index=True)
-    component          = db.Column(db.String(50))  # 'core', 'plugin', 'theme'
+    scan_history_id    = db.Column(db.Integer, db.ForeignKey("scan_history.id"), nullable=False, index=True)
+    component          = db.Column(db.String(50))   # 'core', 'plugin', 'theme', 'wordpress', 'config'
     component_name     = db.Column(db.String(100))
     version            = db.Column(db.String(30))
     cve_id             = db.Column(db.String(50))
     title              = db.Column(db.String(255))
-    confidence         = db.Column(db.String(30))  # 'Confirmed', 'Cross-verified', 'Likely', 'Unconfirmed', 'Review Required'
-    severity           = db.Column(db.String(30))  # 'critical', 'high', 'medium', 'low' - murni dari scanner
+    confidence         = db.Column(db.String(30))   # 'Cross-verified', 'Confirmed', 'Likely', 'Unconfirmed'
+    severity           = db.Column(db.String(30))   # 'critical', 'high', 'medium', 'low', 'info'
     evidence_summary   = db.Column(db.Text)
     ai_prompt_template = db.Column(db.Text)
     ai_response        = db.Column(db.Text, nullable=True)
+    ai_status          = db.Column(db.String(20), default="idle")  # 'idle', 'pending', 'done', 'error'
+    ai_provider        = db.Column(db.String(30), nullable=True)
+    ai_generated_at    = db.Column(db.DateTime, nullable=True)
+    ai_cache_key       = db.Column(db.String(64), nullable=True, index=True)
     manual_note        = db.Column(db.Text, nullable=True)
-    created_at         = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at         = db.Column(db.DateTime, default=_utcnow)
 
-    history = db.relationship('ScanHistory', back_populates='findings_list')
-
+    history = db.relationship("ScanHistory", back_populates="findings_list")
