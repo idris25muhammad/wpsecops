@@ -1,0 +1,368 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="space-y-6">
+    <!-- Top Control Bar -->
+    <div class="ds-card p-5">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+                <div class="text-[11px] font-mono uppercase tracking-wider text-teal-700 font-semibold">Evaluasi Empiris Bab 4</div>
+                <h2 class="text-lg font-bold text-gray-900">Analisis Komparatif Penelitian WP-SecOps</h2>
+                <p class="text-xs text-gray-500 mt-0.5">
+                    Data agregat otomatis dari <strong>{{ total_scanned }}</strong> pemindaian berstatus <span class="font-mono">scanned</span>.
+                </p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-3">
+                <form method="GET" action="{{ url_for('riset.riset') }}" class="flex items-center gap-2">
+                    <select name="server_id" onchange="this.form.submit()" class="px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-800">
+                        <option value="">Semua Server Target</option>
+                        {% for s in servers %}
+                            <option value="{{ s.id }}" {% if selected_server_id == s.id %}selected{% endif %}>{{ s.name }} ({{ s.url }})</option>
+                        {% endfor %}
+                    </select>
+                </form>
+
+                <div class="flex items-center gap-2 pl-2 border-l border-gray-200">
+                    <select id="bench-server-id" class="px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-800">
+                        {% for s in servers %}
+                            <option value="{{ s.id }}" {% if selected_server_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <button id="run-benchmark-btn" onclick="runPairBenchmark()"
+                        class="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold rounded-lg shadow-sm disabled:opacity-50"
+                        {% if not servers %}disabled{% endif %}>
+                        Run Pair Benchmark (Seq vs Parallel)
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div id="bench-status" class="hidden mt-3 p-2.5 rounded-lg bg-sky-50 border border-sky-200 text-xs font-mono text-sky-800"></div>
+    </div>
+
+    {% macro table_actions(table_id, filename) %}
+    <div class="flex items-center gap-2">
+        <button type="button" onclick="copyTableMarkdown('{{ table_id }}', this)"
+            class="px-2.5 py-1 bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-[11px] font-medium rounded-md">
+            Copy Markdown
+        </button>
+        <button type="button" onclick="exportTableCSV('{{ table_id }}', '{{ filename }}')"
+            class="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-[11px] font-medium rounded-md">
+            Export CSV
+        </button>
+    </div>
+    {% endmacro %}
+
+    <!-- TABEL 1 -->
+    <div class="ds-card overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
+            <div>
+                <h3 class="text-sm font-bold text-gray-900">Tabel 1. Komparasi Kinerja Eksekusi: Sequential vs Async IO Parallel</h3>
+                <p class="text-[11px] text-gray-500">Speedup = T_seq / T_par; Efisiensi = ((T_seq - T_par) / T_seq) × 100%. Nilai bertanda (*) adalah estimasi jumlah durasi fase jika scan sequential belum dijalankan.</p>
+            </div>
+            {{ table_actions('tbl-1', 'riset_tabel1_async_vs_sequential.csv') }}
+        </div>
+        <div class="overflow-x-auto">
+            <table id="tbl-1" class="w-full text-xs text-left">
+                <thead class="bg-gray-50 text-gray-600 font-semibold border-b border-gray-200">
+                    <tr>
+                        <th class="px-4 py-2.5">Target</th>
+                        <th class="px-3 py-2.5">Grup</th>
+                        <th class="px-3 py-2.5 text-right">WhatWeb (s)</th>
+                        <th class="px-3 py-2.5 text-right">WPScan (s)</th>
+                        <th class="px-3 py-2.5 text-right">Nuclei (s)</th>
+                        <th class="px-3 py-2.5 text-right">Hardening (s)</th>
+                        <th class="px-3 py-2.5 text-right">Sequential (s)</th>
+                        <th class="px-3 py-2.5 text-right">Async Parallel (s)</th>
+                        <th class="px-3 py-2.5 text-right">Speedup</th>
+                        <th class="px-3 py-2.5 text-right">Efisiensi (%)</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 font-mono">
+                    {% for r in t1_rows %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-2.5 font-sans font-medium text-gray-900">{{ r.server_name }}</td>
+                        <td class="px-3 py-2.5 font-sans text-gray-600">{{ r.wp_group }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.t_whatweb }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.t_wpscan }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.t_nuclei }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.t_hardening }}</td>
+                        <td class="px-3 py-2.5 text-right">
+                            {% if r.t_seq is not none %}{{ r.t_seq }}{% elif r.t_seq_est is not none %}{{ r.t_seq_est }}*{% else %}—{% endif %}
+                        </td>
+                        <td class="px-3 py-2.5 text-right text-sky-700 font-semibold">{{ r.t_par if r.t_par is not none else '—' }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ (r.speedup ~ 'x') if r.speedup is not none else '—' }}</td>
+                        <td class="px-3 py-2.5 text-right text-emerald-700 font-semibold">{{ (r.eff_pct ~ '%') if r.eff_pct is not none else '—' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="10" class="px-4 py-6 text-center text-gray-400 font-sans">Belum ada data pemindaian selesai.</td></tr>
+                    {% endfor %}
+                    {% if t1_rows %}
+                    <tr class="bg-gray-50 font-semibold">
+                        <td class="px-4 py-2.5 font-sans" colspan="8">Rata-rata Speedup & Efisiensi Async IO</td>
+                        <td class="px-3 py-2.5 text-right">{{ (t1_avg.speedup ~ 'x') if t1_avg.speedup is not none else '—' }}</td>
+                        <td class="px-3 py-2.5 text-right text-emerald-700">{{ (t1_avg.eff_pct ~ '%') if t1_avg.eff_pct is not none else '—' }}</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- TABEL 2 -->
+    <div class="ds-card overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
+            <div>
+                <h3 class="text-sm font-bold text-gray-900">Tabel 2. Komparasi Cakupan Deteksi Antar-Scanner (Single-Tool vs Pipeline)</h3>
+                <p class="text-[11px] text-gray-500">Menunjukkan kontribusi unik tiap fase scanner terhadap total temuan WP-SecOps pada scan terbaru tiap target.</p>
+            </div>
+            {{ table_actions('tbl-2', 'riset_tabel2_cakupan_scanner.csv') }}
+        </div>
+        <div class="overflow-x-auto">
+            <table id="tbl-2" class="w-full text-xs text-left">
+                <thead class="bg-gray-50 text-gray-600 font-semibold border-b border-gray-200">
+                    <tr>
+                        <th class="px-4 py-2.5">Target</th>
+                        <th class="px-3 py-2.5">Versi WP</th>
+                        <th class="px-3 py-2.5 text-right">WhatWeb (Tech)</th>
+                        <th class="px-3 py-2.5 text-right">WPScan (Komponen)</th>
+                        <th class="px-3 py-2.5 text-right">Nuclei (Eksposur)</th>
+                        <th class="px-3 py-2.5 text-right">Hardening (FAIL / WARN)</th>
+                        <th class="px-3 py-2.5 text-right">Total Temuan</th>
+                        <th class="px-3 py-2.5 text-right">Kontribusi Nuclei (%)</th>
+                        <th class="px-3 py-2.5 text-right">Kontribusi Hardening (%)</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 font-mono">
+                    {% for r in t2_rows %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-2.5 font-sans font-medium text-gray-900">{{ r.server_name }}</td>
+                        <td class="px-3 py-2.5">{{ r.wp_version }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.whatweb_count }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.wpscan_count }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.nuclei_count }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.hd_fail }} / {{ r.hd_warn }}</td>
+                        <td class="px-3 py-2.5 text-right font-semibold text-gray-900">{{ r.total_findings }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.nuclei_pct }}%</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.hd_pct }}%</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="9" class="px-4 py-6 text-center text-gray-400 font-sans">Belum ada data pemindaian selesai.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- TABEL 3 -->
+    <div class="ds-card overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
+            <div>
+                <h3 class="text-sm font-bold text-gray-900">Tabel 3. Komparasi Akurasi &amp; Korelasi Confidence Temuan</h3>
+                <p class="text-[11px] text-gray-500">Rasio Terverifikasi = (Cross-verified + Confirmed) / Total Temuan × 100%.</p>
+            </div>
+            {{ table_actions('tbl-3', 'riset_tabel3_confidence_korelasi.csv') }}
+        </div>
+        <div class="overflow-x-auto">
+            <table id="tbl-3" class="w-full text-xs text-left">
+                <thead class="bg-gray-50 text-gray-600 font-semibold border-b border-gray-200">
+                    <tr>
+                        <th class="px-4 py-2.5">Target</th>
+                        <th class="px-3 py-2.5">Grup</th>
+                        <th class="px-3 py-2.5 text-right">Cross-verified</th>
+                        <th class="px-3 py-2.5 text-right">Confirmed</th>
+                        <th class="px-3 py-2.5 text-right">Likely</th>
+                        <th class="px-3 py-2.5 text-right">Unconfirmed</th>
+                        <th class="px-3 py-2.5 text-right">Crit / High / Med / Low</th>
+                        <th class="px-3 py-2.5 text-right">Total</th>
+                        <th class="px-3 py-2.5 text-right">Rasio Terverifikasi (%)</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 font-mono">
+                    {% for r in t3_rows %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-2.5 font-sans font-medium text-gray-900">{{ r.server_name }}</td>
+                        <td class="px-3 py-2.5 font-sans text-gray-600">{{ r.wp_group }}</td>
+                        <td class="px-3 py-2.5 text-right text-emerald-700 font-semibold">{{ r.cross_verified }}</td>
+                        <td class="px-3 py-2.5 text-right text-sky-700 font-semibold">{{ r.confirmed }}</td>
+                        <td class="px-3 py-2.5 text-right text-amber-700">{{ r.likely }}</td>
+                        <td class="px-3 py-2.5 text-right text-gray-500">{{ r.unconfirmed }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.sev.critical }} / {{ r.sev.high }} / {{ r.sev.medium }} / {{ r.sev.low }}</td>
+                        <td class="px-3 py-2.5 text-right font-semibold">{{ r.total }}</td>
+                        <td class="px-3 py-2.5 text-right font-semibold text-emerald-700">{{ r.verified_ratio }}%</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="9" class="px-4 py-6 text-center text-gray-400 font-sans">Belum ada data temuan.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- TABEL 4 -->
+    <div class="ds-card overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
+            <div>
+                <h3 class="text-sm font-bold text-gray-900">Tabel 4. Komparasi Postur Keamanan Lintas Generasi WordPress</h3>
+                <p class="text-[11px] text-gray-500">Pengelompokan otomatis berdasarkan versi WordPress: Grup A (&lt;5.4), Grup B (5.4–6.3), Grup C (≥6.4).</p>
+            </div>
+            {{ table_actions('tbl-4', 'riset_tabel4_generasi_wordpress.csv') }}
+        </div>
+        <div class="overflow-x-auto">
+            <table id="tbl-4" class="w-full text-xs text-left">
+                <thead class="bg-gray-50 text-gray-600 font-semibold border-b border-gray-200">
+                    <tr>
+                        <th class="px-4 py-2.5">Grup Penelitian</th>
+                        <th class="px-3 py-2.5">Target (n)</th>
+                        <th class="px-3 py-2.5">Versi WP</th>
+                        <th class="px-3 py-2.5">Versi PHP</th>
+                        <th class="px-3 py-2.5 text-right">Rata-rata Durasi (s)</th>
+                        <th class="px-3 py-2.5 text-right">Rata-rata Temuan</th>
+                        <th class="px-3 py-2.5 text-right">Skor Hardening (%)</th>
+                        <th class="px-3 py-2.5 text-center">Risiko Dominan</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 font-mono">
+                    {% for r in t4_rows %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-2.5 font-sans font-semibold text-gray-900">{{ r.group }}</td>
+                        <td class="px-3 py-2.5 font-sans text-gray-700">{{ r.targets }} ({{ r.count }})</td>
+                        <td class="px-3 py-2.5">{{ r.wp_versions }}</td>
+                        <td class="px-3 py-2.5">{{ r.php_versions }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.avg_duration }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.avg_vulns }}</td>
+                        <td class="px-3 py-2.5 text-right font-semibold">{{ r.avg_hd_score }}%</td>
+                        <td class="px-3 py-2.5 text-center font-sans uppercase font-semibold
+                            {% if r.dominant_risk == 'red' %}text-red-700{% elif r.dominant_risk == 'yellow' %}text-amber-700{% elif r.dominant_risk == 'green' %}text-emerald-700{% else %}text-sky-700{% endif %}">
+                            {{ r.dominant_risk }}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="px-4 py-6 text-center text-gray-400 font-sans">Belum ada data kelompok target.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- TABEL 5 -->
+    <div class="ds-card overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
+            <div>
+                <h3 class="text-sm font-bold text-gray-900">Tabel 5. Komparasi Mode Deteksi WPScan (passive vs mixed vs aggressive)</h3>
+                <p class="text-[11px] text-gray-500">Trade-off kecepatan eksekusi terhadap cakupan komponen dan rasio temuan per detik.</p>
+            </div>
+            {{ table_actions('tbl-5', 'riset_tabel5_mode_deteksi.csv') }}
+        </div>
+        <div class="overflow-x-auto">
+            <table id="tbl-5" class="w-full text-xs text-left">
+                <thead class="bg-gray-50 text-gray-600 font-semibold border-b border-gray-200">
+                    <tr>
+                        <th class="px-4 py-2.5">Mode Deteksi</th>
+                        <th class="px-3 py-2.5 text-right">Jumlah Scan</th>
+                        <th class="px-3 py-2.5 text-right">Rata-rata Durasi WPScan (s)</th>
+                        <th class="px-3 py-2.5 text-right">Rata-rata Total Pipeline (s)</th>
+                        <th class="px-3 py-2.5 text-right">Rata-rata Komponen</th>
+                        <th class="px-3 py-2.5 text-right">Rata-rata Temuan</th>
+                        <th class="px-3 py-2.5 text-right">Temuan / Detik</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 font-mono">
+                    {% for r in t5_rows %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-2.5 font-semibold text-gray-900">{{ r.mode }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.count }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.avg_wpscan_dur if r.avg_wpscan_dur is not none else '—' }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.avg_total_dur if r.avg_total_dur is not none else '—' }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.avg_comp if r.avg_comp is not none else '—' }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.avg_vulns if r.avg_vulns is not none else '—' }}</td>
+                        <td class="px-3 py-2.5 text-right">{{ r.findings_per_sec if r.findings_per_sec is not none else '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+function _tableMatrix(tableId) {
+    const table = document.getElementById(tableId);
+    if (!table) return [];
+    return Array.from(table.querySelectorAll("tr")).map(tr =>
+        Array.from(tr.querySelectorAll("th, td")).map(cell =>
+            cell.innerText.replace(/\s+/g, " ").trim()
+        )
+    );
+}
+
+function exportTableCSV(tableId, filename) {
+    const rows = _tableMatrix(tableId);
+    const csv = rows.map(r => r.map(v => `"${v.replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+}
+
+function copyTableMarkdown(tableId, btn) {
+    const rows = _tableMatrix(tableId);
+    if (rows.length === 0) return;
+    const header = "| " + rows[0].join(" | ") + " |";
+    const sep = "| " + rows[0].map(() => "---").join(" | ") + " |";
+    const body = rows.slice(1).map(r => "| " + r.join(" | ") + " |").join("\n");
+    navigator.clipboard.writeText([header, sep, body].join("\n")).then(() => {
+        const orig = btn.innerText;
+        btn.innerText = "Tersalin!";
+        setTimeout(() => { btn.innerText = orig; }, 1500);
+    });
+}
+
+async function waitForScan(scanId) {
+    while (true) {
+        const res = await fetch(`/scan-status/${scanId}`);
+        const data = await res.json();
+        if (data.status === "scanned" || data.status === "failed") return data;
+        await new Promise(r => setTimeout(r, 2000));
+    }
+}
+
+async function runPairBenchmark() {
+    const serverId = document.getElementById("bench-server-id").value;
+    const btn = document.getElementById("run-benchmark-btn");
+    const statusBox = document.getElementById("bench-status");
+    if (!serverId) return;
+
+    btn.disabled = true;
+    statusBox.classList.remove("hidden");
+
+    try {
+        statusBox.textContent = "[1/2] Menjalankan mode SEQUENTIAL...";
+        const r1 = await fetch(`/scan/${serverId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ execution_mode: "sequential", plugins_detection: "passive" })
+        });
+        const d1 = await r1.json();
+        if (!r1.ok) throw new Error(d1.error || "Gagal memulai scan sequential");
+        await waitForScan(d1.scan_id);
+
+        statusBox.textContent = "[2/2] Menjalankan mode ASYNC IO PARALLEL...";
+        const r2 = await fetch(`/scan/${serverId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ execution_mode: "parallel", plugins_detection: "passive" })
+        });
+        const d2 = await r2.json();
+        if (!r2.ok) throw new Error(d2.error || "Gagal memulai scan parallel");
+        await waitForScan(d2.scan_id);
+
+        statusBox.textContent = "Benchmark selesai! Memuat ulang tabel...";
+        window.location.reload();
+    } catch (err) {
+        statusBox.textContent = "Benchmark gagal: " + (err.message || err);
+        btn.disabled = false;
+    }
+}
+</script>
+{% endblock %}

@@ -57,7 +57,8 @@ wpsecops/
 │   ├── main.py            # main_bp   : dashboard, statistics (SQL), system-status (real ping), async-worker
 │   ├── servers.py         # servers_bp: CRUD server + validasi URL + subquery N+1-free
 │   ├── scan.py            # scan_bp   : trigger scan (409 guard) + polling ringan (/scan-status)
-│   └── history.py         # history_bp: list (paginated), detail laporan, workflow timeline, AI async, note, hapus
+│   ├── history.py         # history_bp: list (paginated), detail laporan, workflow timeline, AI async, note, hapus
+│   └── riset.py           # riset_bp  : halaman /riset (5 tabel komparatif penelitian, tidak di nav)
 ├── services/
 │   ├── __init__.py        # re-export registry, parsers, correlation, runners, AI
 │   ├── registry.py        # ScannerSpec & SCANNERS registry (single source of truth 4 fase)

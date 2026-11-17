@@ -193,3 +193,53 @@ def test_recover_orphan_scans(app):
         count = recover_orphan_scans(max_age_seconds=3600)
         assert count == 1
         assert db.session.get(ScanHistory, sh.id).status == "failed"
+
+
+def test_riset_page_renders_five_comparative_tables(auth_client, app):
+    from models import ScanResult
+
+    with app.app_context():
+        srv = Server(name="WP-Lab-1", url="http://wp1.local")
+        db.session.add(srv)
+        db.session.commit()
+
+        s_seq = ScanHistory(
+            server_id=srv.id, status="scanned", vuln_count=3, duration=12.0,
+            risk_color="red", max_severity="high",
+            params={"execution_mode": "sequential", "plugins_detection": "passive"},
+        )
+        s_par = ScanHistory(
+            server_id=srv.id, status="scanned", vuln_count=3, duration=4.0,
+            risk_color="red", max_severity="high",
+            params={"execution_mode": "parallel", "plugins_detection": "passive"},
+        )
+        db.session.add_all([s_seq, s_par])
+        db.session.commit()
+
+        for sh in (s_seq, s_par):
+            db.session.add_all([
+                ScanResult(scan_history_id=sh.id, scanner_type="whatweb", status="scanned", duration=2.0,
+                           parsed={"tech_stack": {"WordPress": "4.9"}, "target_info": {"wordpress_version": "4.9", "php_version": "7.2"}}),
+                ScanResult(scan_history_id=sh.id, scanner_type="wpscan", status="scanned", duration=5.0,
+                           parsed={"components": [{"component_name": "akismet"}], "target_info": {"wordpress_version": "4.9"}}),
+                ScanResult(scan_history_id=sh.id, scanner_type="nuclei", status="scanned", duration=3.0,
+                           parsed={"findings": [{"template_id": "cve-1", "severity": "high"}]}),
+                ScanResult(scan_history_id=sh.id, scanner_type="hardening", status="scanned", duration=2.0,
+                           parsed={"summary": {"PASS": 10, "FAIL": 2, "WARN": 1}}),
+            ])
+        db.session.add(ScanFinding(
+            scan_history_id=s_par.id, component="plugin", component_name="akismet",
+            confidence="Cross-verified", severity="high", title="Test Finding",
+        ))
+        db.session.commit()
+
+    resp = auth_client.get("/riset")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "Tabel 1." in html
+    assert "Tabel 2." in html
+    assert "Tabel 3." in html
+    assert "Tabel 4." in html
+    assert "Tabel 5." in html
+    assert "3.0x" in html  # Speedup 12.0 / 4.0 = 3.0x
+    assert "66.7%" in html  # Efisiensi (12 - 4) / 12 = 66.7%
