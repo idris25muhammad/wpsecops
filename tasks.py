@@ -30,16 +30,22 @@ class ThrottledLogWriter:
         self.app = app
         self.buffer = []
         self.last_write = 0.0
+        self._lock = asyncio.Lock()
 
     async def write(self, line_text):
         if not line_text:
             return
-        self.buffer.append(line_text)
-        now = time.time()
-        if now - self.last_write > 0.6 or len(self.buffer) >= 3:
-            await self.flush()
+        async with self._lock:
+            self.buffer.append(line_text)
+            now = time.time()
+            if now - self.last_write > 0.6 or len(self.buffer) >= 3:
+                await self._flush_unlocked()
 
     async def flush(self):
+        async with self._lock:
+            await self._flush_unlocked()
+
+    async def _flush_unlocked(self):
         if not self.buffer:
             return
         lines_to_write = "\n".join(self.buffer)
@@ -178,8 +184,10 @@ def scan_task(self, history_id, target_url, api_token=None, plugins_detection="a
     from models import ScanFinding
 
     scan_params = scan_params or {}
+    
+    # Ambil mode eksekusi dari scan_params, default ke "parallel"
+    execution_mode = scan_params.get("execution_mode", "parallel")
 
-    # Scanner yang dipilih user (validasi ke daftar yang dikenal)
     ALL_SCANNERS = ["whatweb", "wpscan", "nuclei", "hardening"]
     if not scanners:
         scanners = ALL_SCANNERS
@@ -212,76 +220,51 @@ def scan_task(self, history_id, target_url, api_token=None, plugins_detection="a
     nuclei_writer = ThrottledLogWriter(history_id, "nuclei", app)
     hardening_writer = ThrottledLogWriter(history_id, "hardening", app)
 
-    async def run_sequential_pipeline():
+    async def run_pipeline():
         start_time = time.time()
 
-        # Variabel hasil antar-fase (default kosong bila scanner tidak dipilih)
-        tech_stack = {}
-        whatweb_target_info = {}
-        wpscan_raw = ""
-        wpscan_components = []
-        wpscan_target_info = {
-            "wordpress_version": None,
-            "main_theme": None,
-            "plugins_detected": [],
-            "users_detected": [],
-            "interesting_findings": [],
-        }
-        wp_version = None
-        users_found = []
-        nuclei_findings = []
+        whatweb_res = {}
+        wpscan_res = {}
+        nuclei_res = {}
+        hardening_res = {}
 
-        # ─────────────────────────────────────────────────────────────────────
-        # FASE 1: WhatWeb - Identifikasi Teknologi
-        # ─────────────────────────────────────────────────────────────────────
-        if "whatweb" in scanners:
-            await whatweb_writer.write("━━━ FASE 1: WhatWeb Technology Identification ━━━")
+        # Fungsi helper untuk masing-masing scanner
+        async def execute_whatweb():
+            if "whatweb" not in scanners:
+                return
+            await whatweb_writer.write("━━━ FASE: WhatWeb Technology Identification ━━━")
             await whatweb_writer.write(f"[WHATWEB] Target: {target_url}")
-            await whatweb_writer.write("[WHATWEB] Flags: --log-json=- -a 3 --no-errors")
-
+            
             with app.app_context():
                 res = ScanResult.query.filter_by(scan_history_id=history_id, scanner_type="whatweb").first()
                 if res:
                     res.status = "scanning"
                     db.session.commit()
 
-            whatweb_start = time.time()
-
-            async def whatweb_cb(line):
-                await whatweb_writer.write(f"[WHATWEB] {line}")
-
-            whatweb_res = await run_whatweb(target_url, log_callback=whatweb_cb)
+            w_start = time.time()
+            nonlocal whatweb_res
+            whatweb_res = await run_whatweb(target_url, log_callback=lambda line: whatweb_writer.write(f"[WHATWEB] {line}"))
             await whatweb_writer.flush()
-            whatweb_duration = time.time() - whatweb_start
-            whatweb_raw = whatweb_res.get("raw_output", "")
-            whatweb_status = whatweb_res.get("status", "failed")
-            tech_stack = whatweb_res.get("tech_stack", {})
-            whatweb_target_info = whatweb_res.get("target_info", {})
+            w_duration = time.time() - w_start
 
+            tech_stack = whatweb_res.get("tech_stack", {})
             with app.app_context():
                 res = ScanResult.query.filter_by(scan_history_id=history_id, scanner_type="whatweb").first()
                 if res:
-                    res.status = whatweb_status
-                    res.raw_output = whatweb_raw
-                    res.duration = whatweb_duration
+                    res.status = whatweb_res.get("status", "failed")
+                    res.raw_output = whatweb_res.get("raw_output", "")
+                    res.duration = w_duration
                     res.vuln_count = 0
                     db.session.commit()
 
-            await whatweb_writer.write(
-                f"[WHATWEB] Selesai {whatweb_duration:.1f}s - "
-                f"{len(tech_stack)} teknologi teridentifikasi"
-            )
-            for tech, ver in tech_stack.items():
-                await whatweb_writer.write(f"[WHATWEB] → {tech}{': ' + ver if ver else ''}")
+            await whatweb_writer.write(f"[WHATWEB] Selesai {w_duration:.1f}s - {len(tech_stack)} teknologi teridentifikasi")
             await whatweb_writer.flush()
 
-        # ─────────────────────────────────────────────────────────────────────
-        # FASE 2: WPScan - WordPress Fingerprinting + Enumerasi (No-API)
-        # ─────────────────────────────────────────────────────────────────────
-        if "wpscan" in scanners:
-            await wpscan_writer.write("━━━ FASE 2: WPScan WordPress Fingerprinting & Enumeration ━━━")
+        async def execute_wpscan():
+            if "wpscan" not in scanners:
+                return
+            await wpscan_writer.write("━━━ FASE: WPScan WordPress Fingerprinting & Enumeration ━━━")
             await wpscan_writer.write(f"[WPSCAN] Target: {target_url}")
-            await wpscan_writer.write("[WPSCAN] Mode: --enumerate vp,vt,u,tt,cb | No API Token")
 
             with app.app_context():
                 res = ScanResult.query.filter_by(scan_history_id=history_id, scanner_type="wpscan").first()
@@ -289,57 +272,36 @@ def scan_task(self, history_id, target_url, api_token=None, plugins_detection="a
                     res.status = "scanning"
                     db.session.commit()
 
-            wpscan_start = time.time()
-
-            async def wpscan_cb(line):
-                await wpscan_writer.write(f"[WPSCAN] {line}")
-
+            w_start = time.time()
+            nonlocal wpscan_res
             wpscan_res = await run_wpscan(
                 target_url,
                 api_token=None,
                 plugins_detection=plugins_detection,
-                log_callback=wpscan_cb,
+                log_callback=lambda line: wpscan_writer.write(f"[WPSCAN] {line}"),
                 cookies=scan_params.get("cookies"),
                 headers=scan_params.get("headers") or [],
             )
             await wpscan_writer.flush()
-            wpscan_duration = time.time() - wpscan_start
-            wpscan_raw = wpscan_res.get("raw_output", "")
-            wpscan_status = wpscan_res.get("status", "failed")
+            w_duration = time.time() - w_start
 
             with app.app_context():
                 res = ScanResult.query.filter_by(scan_history_id=history_id, scanner_type="wpscan").first()
                 if res:
-                    res.status = wpscan_status
-                    res.raw_output = wpscan_raw
-                    res.duration = wpscan_duration
+                    res.status = wpscan_res.get("status", "failed")
+                    res.raw_output = wpscan_res.get("raw_output", "")
+                    res.duration = w_duration
                     res.vuln_count = 0
                     db.session.commit()
 
-            wpscan_components, wpscan_target_info = parse_wpscan_components(wpscan_raw)
-            wp_version = wpscan_target_info.get("wordpress_version") or whatweb_target_info.get("wordpress_version")
-            users_found = wpscan_target_info.get("users_detected", [])
-
-            await wpscan_writer.write(
-                f"[WPSCAN] Selesai {wpscan_duration:.1f}s - "
-                f"WP v{wp_version or '?'} | "
-                f"Plugins: {len(wpscan_target_info['plugins_detected'])} | "
-                f"Users: {len(users_found)}"
-            )
-            for c in wpscan_components:
-                outdated = " [OUTDATED]" if c.get("outdated") else ""
-                await wpscan_writer.write(f"[WPSCAN] → [{c['component_type'].upper()}] {c['component_name']} v{c['version'] or '?'}{outdated}")
-            if users_found:
-                await wpscan_writer.write(f"[WPSCAN] → [USERS FOUND] {', '.join(users_found)}")
+            await wpscan_writer.write(f"[WPSCAN] Selesai {w_duration:.1f}s")
             await wpscan_writer.flush()
 
-        # ─────────────────────────────────────────────────────────────────────
-        # FASE 3: Nuclei - WordPress Exposure Detection
-        # ─────────────────────────────────────────────────────────────────────
-        if "nuclei" in scanners:
-            await nuclei_writer.write("━━━ FASE 3: Nuclei WordPress Exposure Detection ━━━")
+        async def execute_nuclei():
+            if "nuclei" not in scanners:
+                return
+            await nuclei_writer.write("━━━ FASE: Nuclei WordPress Exposure Detection ━━━")
             await nuclei_writer.write(f"[NUCLEI] Target: {target_url}")
-            await nuclei_writer.write("[NUCLEI] Flags: -tags wordpress -severity critical,high,medium,low -v -jsonl")
 
             with app.app_context():
                 res = ScanResult.query.filter_by(scan_history_id=history_id, scanner_type="nuclei").first()
@@ -347,14 +309,11 @@ def scan_task(self, history_id, target_url, api_token=None, plugins_detection="a
                     res.status = "scanning"
                     db.session.commit()
 
-            nuclei_start = time.time()
-
-            async def nuclei_cb(line):
-                await nuclei_writer.write(f"[NUCLEI] {line}")
-
+            n_start = time.time()
+            nonlocal nuclei_res
             nuclei_res = await run_nuclei(
                 target_url,
-                log_callback=nuclei_cb,
+                log_callback=lambda line: nuclei_writer.write(f"[NUCLEI] {line}"),
                 cookies=scan_params.get("cookies"),
                 headers=scan_params.get("headers") or [],
                 severity=scan_params.get("nuclei_severity"),
@@ -362,38 +321,26 @@ def scan_task(self, history_id, target_url, api_token=None, plugins_detection="a
                 headless=bool(scan_params.get("nuclei_headless")),
             )
             await nuclei_writer.flush()
-            nuclei_duration = time.time() - nuclei_start
-            nuclei_raw = nuclei_res.get("raw_output", "")
-            nuclei_status = nuclei_res.get("status", "failed")
-            nuclei_findings = parse_nuclei_findings(nuclei_raw)
-
-            await nuclei_writer.write(
-                f"[NUCLEI] Selesai {nuclei_duration:.1f}s - {len(nuclei_findings)} eksposur terdeteksi"
-            )
-            for nf in nuclei_findings:
-                await nuclei_writer.write(
-                    f"[NUCLEI] → [{nf['severity'].upper()}] {nf['name']} "
-                    f"(template: {nf['template_id']}) @ {nf['matched_at']}"
-                )
+            n_duration = time.time() - n_start
+            findings = parse_nuclei_findings(nuclei_res.get("raw_output", ""))
 
             with app.app_context():
                 res = ScanResult.query.filter_by(scan_history_id=history_id, scanner_type="nuclei").first()
                 if res:
-                    res.status = nuclei_status
-                    res.raw_output = nuclei_raw
-                    res.duration = nuclei_duration
-                    res.vuln_count = len(nuclei_findings)
+                    res.status = nuclei_res.get("status", "failed")
+                    res.raw_output = nuclei_res.get("raw_output", "")
+                    res.duration = n_duration
+                    res.vuln_count = len(findings)
                     db.session.commit()
 
+            await nuclei_writer.write(f"[NUCLEI] Selesai {n_duration:.1f}s - {len(findings)} eksposur terdeteksi")
             await nuclei_writer.flush()
 
-        # ─────────────────────────────────────────────────────────────────────
-        # FASE 4: WordPress Hardening Check (Eksternal / HTTP-only)
-        # ─────────────────────────────────────────────────────────────────────
-        if "hardening" in scanners:
-            await hardening_writer.write("━━━ FASE 4: WordPress Hardening Check (Eksternal) ━━━")
+        async def execute_hardening():
+            if "hardening" not in scanners:
+                return
+            await hardening_writer.write("━━━ FASE: WordPress Hardening Check (Eksternal) ━━━")
             await hardening_writer.write(f"[HARDENING] Target: {target_url}")
-            await hardening_writer.write("[HARDENING] Mode: passive HTTP probing - tanpa akses shell/SSH")
 
             with app.app_context():
                 res = ScanResult.query.filter_by(scan_history_id=history_id, scanner_type="hardening").first()
@@ -401,50 +348,66 @@ def scan_task(self, history_id, target_url, api_token=None, plugins_detection="a
                     res.status = "scanning"
                     db.session.commit()
 
-            hardening_start = time.time()
-
+            h_start = time.time()
+            nonlocal hardening_res
             hardening_res = await asyncio.to_thread(run_hardening, target_url)
             await hardening_writer.flush()
-            hardening_duration = time.time() - hardening_start
-            hardening_raw = json.dumps(hardening_res, ensure_ascii=False)
-            hardening_checks = hardening_res.get("checks", [])
-            hardening_status = "scanned"
+            h_duration = time.time() - h_start
+            
+            h_raw = json.dumps(hardening_res, ensure_ascii=False)
+            fail_count = hardening_res.get("summary", {}).get("FAIL", 0)
 
             with app.app_context():
                 res = ScanResult.query.filter_by(scan_history_id=history_id, scanner_type="hardening").first()
                 if res:
-                    res.status = hardening_status
-                    res.raw_output = hardening_raw
-                    res.duration = hardening_duration
-                    res.vuln_count = hardening_res.get("summary", {}).get("FAIL", 0)
+                    res.status = "scanned"
+                    res.raw_output = h_raw
+                    res.duration = h_duration
+                    res.vuln_count = fail_count
                     db.session.commit()
 
-            fails = [c for c in hardening_checks if c["status"] == "FAIL"]
-            warns = [c for c in hardening_checks if c["status"] == "WARN"]
-            await hardening_writer.write(
-                f"[HARDENING] Selesai {hardening_duration:.1f}s - "
-                f"FAIL: {len(fails)} | WARN: {len(warns)} | total cek: {len(hardening_checks)}"
-            )
-            for c in fails:
-                await hardening_writer.write(f"[HARDENING] ❌ {c['title']}: {c['detail']}")
-            for c in warns:
-                await hardening_writer.write(f"[HARDENING] ⚠️  {c['title']}: {c['detail']}")
+            await hardening_writer.write(f"[HARDENING] Selesai {h_duration:.1f}s - FAIL: {fail_count}")
             await hardening_writer.flush()
 
+        # CABANG EKSEKUSI: BERDASARKAN MODE (PARALLEL VS SEQUENTIAL)
+        if execution_mode == "sequential":
+            # Dijalankan beruntun satu per satu
+            await execute_whatweb()
+            await execute_wpscan()
+            await execute_nuclei()
+            await execute_hardening()
+        else:
+            # Dijalankan bersamaan (Paralel) menggunakan asyncio.gather
+            tasks_to_run = [
+                execute_whatweb(),
+                execute_wpscan(),
+                execute_nuclei(),
+                execute_hardening()
+            ]
+            await asyncio.gather(*(t for t in tasks_to_run if t is not None))
+
         # ─────────────────────────────────────────────────────────────────────
-        # Merge + Confidence → ScanFinding records
+        # FASE POST-PROCESSING: Parsing & Confidence Merging
         # ─────────────────────────────────────────────────────────────────────
-        await nuclei_writer.write("[SYSTEM] Menggabungkan hasil & menilai keyakinan...")
+        await nuclei_writer.write(f"[SYSTEM] Pipeline {execution_mode} selesai! Memproses hasil...")
+
+        tech_stack = whatweb_res.get("tech_stack", {})
+        whatweb_target_info = whatweb_res.get("target_info", {})
+        
+        wpscan_raw = wpscan_res.get("raw_output", "")
+        wpscan_components, wpscan_target_info = parse_wpscan_components(wpscan_raw)
+        wp_version = wpscan_target_info.get("wordpress_version") or whatweb_target_info.get("wordpress_version")
+        
+        nuclei_raw = nuclei_res.get("raw_output", "")
+        nuclei_findings = parse_nuclei_findings(nuclei_raw)
 
         with app.app_context():
             history_db = db.session.get(ScanHistory, history_id)
             total_findings = 0
 
-            # Store WPScan JSON as primary history raw_output for detail page
             if history_db and wpscan_raw:
                 history_db.raw_output = wpscan_raw
 
-            # 1. Nuclei findings → Confirmed / Likely (cross-matched against WPScan components)
             for nf in nuclei_findings:
                 confidence, matched_comp = assign_confidence(nf, wpscan_components)
 
@@ -456,7 +419,6 @@ def scan_task(self, history_id, target_url, api_token=None, plugins_detection="a
                 if nf["cve_ids"]:
                     evidence_parts.append(f"CVE: {', '.join(nf['cve_ids'])}")
 
-                # Cross-reference WhatWeb tech stack
                 tech_list = list(tech_stack.keys())
                 if tech_list:
                     evidence_parts.append(
@@ -470,9 +432,7 @@ def scan_task(self, history_id, target_url, api_token=None, plugins_detection="a
                         f"v{matched_comp['version'] or '?'} aktif di target."
                     )
                 else:
-                    evidence_parts.append(
-                        "WPScan tidak mendeteksi komponen terkait secara eksplisit."
-                    )
+                    evidence_parts.append("WPScan tidak mendeteksi komponen terkait secara eksplisit.")
 
                 evidence_summary = "\n".join(evidence_parts)
                 comp_name = matched_comp["component_name"] if matched_comp else nf["template_id"]
@@ -509,7 +469,6 @@ Berikan langkah mitigasi konkret untuk administrator WordPress."""
                 ))
                 total_findings += 1
 
-            # 2. WPScan-detected components with no Nuclei hit → Unconfirmed
             for comp in wpscan_components:
                 comp_name_lower = (comp["component_name"] or "").lower()
                 already_covered = any(
@@ -557,11 +516,7 @@ Apakah versi ini memiliki kerentanan yang diketahui? Berikan rekomendasi keamana
                 db.session.commit()
 
         await nuclei_writer.write(
-            f"[SYSTEM] ✓ Pipeline selesai! "
-            f"WhatWeb tech: {len(tech_stack)} | "
-            f"WPScan komponen: {len(wpscan_components)} | "
-            f"Nuclei hits: {len(nuclei_findings)} | "
-            f"Total ScanFinding: {total_findings}"
+            f"[SYSTEM] ✓ Pipeline ({execution_mode}) selesai! Total ScanFinding: {total_findings}"
         )
         await nuclei_writer.flush()
         return "scanned", "success"
@@ -569,7 +524,7 @@ Apakah versi ini memiliki kerentanan yang diketahui? Berikan rekomendasi keamana
     loop = asyncio.new_event_loop()
     try:
         asyncio.set_event_loop(loop)
-        status, msg = loop.run_until_complete(run_sequential_pipeline())
+        status, msg = loop.run_until_complete(run_pipeline())
     except Exception as e:
         status = "failed"
         with app.app_context():
@@ -583,5 +538,6 @@ Apakah versi ini memiliki kerentanan yang diketahui? Berikan rekomendasi keamana
     return {
         "status": status,
         "history_id": history_id,
-        "scanners": scanners
+        "scanners": scanners,
+        "execution_mode": execution_mode
     }

@@ -1,0 +1,239 @@
+services:
+  # ==========================================
+  # GRUP A: LEGACY & HIGH-RISK (Target 1 - 3)
+  # ==========================================
+  # Target 1: WordPress 4.6 (Port 8081)
+  db1:
+    image: mysql:5.7
+    restart: always
+    volumes:
+      - ./wp1_db:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: wp1
+      MYSQL_ROOT_PASSWORD: password1
+  wp1:
+    image: wordpress:4.6
+    restart: always
+    volumes:
+      - ./wp1_data:/var/www/html
+      - ./uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
+    ports:
+      - "8081:80"
+    environment:
+      WORDPRESS_DB_HOST: db1
+      WORDPRESS_DB_NAME: wp1
+      WORDPRESS_DB_USER: root
+      WORDPRESS_DB_PASSWORD: password1
+
+  # Target 2: WordPress 4.9 (Port 8082)
+  db2:
+    image: mysql:5.7
+    restart: always
+    volumes:
+      - ./wp2_db:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: wp2
+      MYSQL_ROOT_PASSWORD: password2
+  wp2:
+    image: wordpress:4.9
+    restart: always
+    volumes:
+      - ./wp2_data:/var/www/html
+      - ./uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
+    ports:
+      - "8082:80"
+    environment:
+      WORDPRESS_DB_HOST: db2
+      WORDPRESS_DB_NAME: wp2
+      WORDPRESS_DB_USER: root
+      WORDPRESS_DB_PASSWORD: password2
+
+  # Target 3: WordPress 5.0 (Port 8083)
+  db3:
+    image: mysql:5.7
+    restart: always
+    volumes:
+      - ./wp3_db:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: wp3
+      MYSQL_ROOT_PASSWORD: password3
+  wp3:
+    image: wordpress:5.0
+    restart: always
+    volumes:
+      - ./wp3_data:/var/www/html
+      - ./uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
+    ports:
+      - "8083:80"
+    environment:
+      WORDPRESS_DB_HOST: db3
+      WORDPRESS_DB_NAME: wp3
+      WORDPRESS_DB_USER: root
+      WORDPRESS_DB_PASSWORD: password3
+
+  # ==========================================
+  # GRUP B: MID-ERA & REAL-WORLD (Target 4 - 7)
+  # ==========================================
+  # Target 4: WordPress 5.4 (Port 8084)
+  db4:
+    image: mysql:5.7
+    restart: always
+    volumes:
+      - ./wp4_db:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: wp4
+      MYSQL_ROOT_PASSWORD: password4
+  wp4:
+    image: wordpress:5.4
+    restart: always
+    volumes:
+      - ./wp4_data:/var/www/html
+      - ./uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
+    ports:
+      - "8084:80"
+    environment:
+      WORDPRESS_DB_HOST: db4
+      WORDPRESS_DB_NAME: wp4
+      WORDPRESS_DB_USER: root
+      WORDPRESS_DB_PASSWORD: password4
+
+  # Target 5: WordPress 5.8 (Port 8085)
+  db5:
+    image: mysql:5.7
+    restart: always
+    volumes:
+      - ./wp5_db:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: wp5
+      MYSQL_ROOT_PASSWORD: password5
+  wp5:
+    image: wordpress:5.8
+    restart: always
+    volumes:
+      - ./wp5_data:/var/www/html
+      - ./uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
+    ports:
+      - "8085:80"
+    environment:
+      WORDPRESS_DB_HOST: db5
+      WORDPRESS_DB_NAME: wp5
+      WORDPRESS_DB_USER: root
+      WORDPRESS_DB_PASSWORD: password5
+
+  # Target 6: WordPress 6.0 (Port 8086)
+  db6:
+    image: mysql:5.7
+    restart: always
+    volumes:
+      - ./wp6_db:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: wp6
+      MYSQL_ROOT_PASSWORD: password6
+  wp6:
+    image: wordpress:6.0
+    restart: always
+    volumes:
+      - ./wp6_data:/var/www/html
+      - ./uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
+    ports:
+      - "8086:80"
+    environment:
+      WORDPRESS_DB_HOST: db6
+      WORDPRESS_DB_NAME: wp6
+      WORDPRESS_DB_USER: root
+      WORDPRESS_DB_PASSWORD: password6
+
+  # Target 7: WordPress 6.2 (Port 8087)
+  db7:
+    image: mysql:5.7
+    restart: always
+    volumes:
+      - ./wp7_db:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: wp7
+      MYSQL_ROOT_PASSWORD: password7
+  wp7:
+    image: wordpress:6.2
+    restart: always
+    volumes:
+      - ./wp7_data:/var/www/html
+      - ./uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
+    ports:
+      - "8087:80"
+    environment:
+      WORDPRESS_DB_HOST: db7
+      WORDPRESS_DB_NAME: wp7
+      WORDPRESS_DB_USER: root
+      WORDPRESS_DB_PASSWORD: password7
+
+  # ==========================================
+  # GRUP C: MODERN BASELINE & HARDENED (Target 8 - 10)
+  # ==========================================
+  # Target 8: WordPress 6.4 (Port 8088)
+  db8:
+    image: mysql:5.7
+    restart: always
+    volumes:
+      - ./wp8_db:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: wp8
+      MYSQL_ROOT_PASSWORD: password8
+  wp8:
+    image: wordpress:6.4
+    restart: always
+    volumes:
+      - ./wp8_data:/var/www/html
+      - ./uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
+    ports:
+      - "8088:80"
+    environment:
+      WORDPRESS_DB_HOST: db8
+      WORDPRESS_DB_NAME: wp8
+      WORDPRESS_DB_USER: root
+      WORDPRESS_DB_PASSWORD: password8
+
+  # Target 9: WordPress 6.5 (Port 8089)
+  db9:
+    image: mysql:5.7
+    restart: always
+    volumes:
+      - ./wp9_db:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: wp9
+      MYSQL_ROOT_PASSWORD: password9
+  wp9:
+    image: wordpress:6.5
+    restart: always
+    volumes:
+      - ./wp9_data:/var/www/html
+      - ./uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
+    ports:
+      - "8089:80"
+    environment:
+      WORDPRESS_DB_HOST: db9
+      WORDPRESS_DB_NAME: wp9
+      WORDPRESS_DB_USER: root
+      WORDPRESS_DB_PASSWORD: password9
+
+  # Target 10: WordPress Latest (Port 8090)
+  db10:
+    image: mysql:5.7
+    restart: always
+    volumes:
+      - ./wp10_db:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: wp10
+      MYSQL_ROOT_PASSWORD: password10
+  wp10:
+    image: wordpress:latest
+    restart: always
+    volumes:
+      - ./wp10_data:/var/www/html
+      - ./uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
+    ports:
+      - "8090:80"
+    environment:
+      WORDPRESS_DB_HOST: db10
+      WORDPRESS_DB_NAME: wp10
+      WORDPRESS_DB_USER: root
+      WORDPRESS_DB_PASSWORD: password10
