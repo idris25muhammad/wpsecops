@@ -1,0 +1,5 @@
+﻿"Target","Grup","WhatWeb (s)","WPScan (s)","Nuclei (s)","Hardening (s)","Sequential (s)","Async Parallel (s)","Speedup","Efisiensi (%)"
+"wp10 (WP Latest - Hardened)","Lainnya","27.8","18.7","22.08","0.6","115.44","27.82","4.15x","75.9%"
+"wp4 (WP 5.4 - Mid-Era)","Grup B (Mid-Era 5.4–6.3)","35.35","16.29","21.05","0.51","68.35","35.36","1.93x","48.3%"
+"wp1 (WP 4.6 - Legacy)","Grup A (Legacy < 5.4)","6.54","16.76","18.81","0.59","87.73","18.87","4.65x","78.5%"
+"Rata-rata Speedup & Efisiensi Async IO","3.58x","67.6%"

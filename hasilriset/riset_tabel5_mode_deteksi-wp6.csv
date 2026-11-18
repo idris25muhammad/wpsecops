@@ -1,0 +1,4 @@
+﻿"Mode Deteksi","Jumlah Scan","Rata-rata Durasi WPScan (s)","Rata-rata Total Pipeline (s)","Rata-rata Komponen","Rata-rata Temuan","Temuan / Detik"
+"passive","1","31.94","61.33","1.0","7.0","0.114"
+"mixed","1","47.13","47.16","1.0","7.0","0.148"
+"aggressive","1","43.86","43.89","1.0","7.0","0.159"

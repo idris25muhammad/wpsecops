@@ -1,6 +1,9 @@
+import atexit
 import logging
 import os
 import secrets
+import subprocess
+import sys
 from flask import Flask, jsonify
 from werkzeug.security import generate_password_hash
 from config import Config
@@ -122,8 +125,62 @@ def init_db():
         db.session.commit()
 
 
+def _should_autostart_celery():
+    """Return True only for the main `flask run` or `python app.py` process."""
+    if os.getenv("AUTO_START_CELERY", "1") != "1":
+        return False
+    if os.getenv("WERKZEUG_RUN_MAIN") == "true":
+        return False
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return False
+    if "celery" in os.path.basename(sys.argv[0]).lower():
+        return False
+    is_flask_run = os.getenv("FLASK_RUN_FROM_CLI") == "true" and "run" in sys.argv[1:]
+    return is_flask_run or __name__ == "__main__"
+
+
+def _start_celery_if_needed(flask_app):
+    """Start a background Celery worker alongside `flask run` if none is active."""
+    if not _should_autostart_celery():
+        return
+    celery_ext = flask_app.extensions.get("celery")
+    if not celery_ext:
+        return
+    try:
+        if celery_ext.control.ping(timeout=0.5):
+            logger.info("Celery worker sudah aktif; tidak perlu autostart.")
+            return
+    except Exception:
+        pass
+
+    celery_bin = os.path.join(os.path.dirname(sys.executable), "celery")
+    if not os.path.exists(celery_bin):
+        celery_bin = "celery"
+
+    log_file = open("celery.log", "a", encoding="utf-8")
+    proc = subprocess.Popen(
+        [celery_bin, "-A", "tasks.celery_app", "worker", "--loglevel=info"],
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        env={**os.environ, "AUTO_START_CELERY": "0"},
+    )
+    logger.info("Celery worker otomatis dijalankan di background (PID=%s, log=celery.log).", proc.pid)
+
+    def _stop_celery():
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        log_file.close()
+
+    atexit.register(_stop_celery)
+
+
 if os.getenv("WPSECOPS_SKIP_CREATE_APP") != "1":
     app = create_app()
+    _start_celery_if_needed(app)
 
 if __name__ == "__main__":
     app.run(debug=app.config.get("FLASK_DEBUG", False), host="0.0.0.0", port=5000)
